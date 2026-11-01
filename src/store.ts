@@ -4439,8 +4439,12 @@ export class Store {
       /**
        * Idempotent restore: skip a note when the store already holds one with
        * the same namespace + title + created_at + body (re-running an import
-       * after an interruption, or importing your own export twice). Off by
-       * default, so existing callers behave exactly as before.
+       * after an interruption, or importing your own export twice).
+       *
+       * ON by default since 2.1.0. It used to be opt-in, which meant the
+       * ordinary mistake -- syncing or restoring twice -- silently doubled
+       * every memory in the store, and there is no undo for that. Pass
+       * `dedupe: false` only when duplicate rows are genuinely wanted.
        */
       dedupe?: boolean;
       /**
@@ -4508,7 +4512,7 @@ export class Store {
             });
             continue;
           }
-          if (opts.dedupe && this.hasImportTwin(note)) {
+          if (opts.dedupe !== false && this.hasImportTwin(note)) {
             if (opts.report) opts.report.skipped = (opts.report.skipped ?? 0) + 1;
             continue;
           }

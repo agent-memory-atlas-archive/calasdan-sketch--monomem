@@ -1701,11 +1701,16 @@ export function createApiServer(
           // on an optional ranking aid. Below the threshold, link inline so
           // the common small import behaves exactly as before.
           const deferEdges = notes.length > IMPORT_EDGE_DEFER_THRESHOLD;
-          // dedupe (body flag or ?dedupe=1): skip notes already present with
-          // the same namespace/title/created_at/body, so re-running a restore
-          // is idempotent. Off by default (unchanged behaviour).
+          // dedupe: skip notes already present with the same
+          // namespace/title/created_at/body, so re-running a restore is
+          // idempotent. ON by default since 2.1.0 -- importing twice used to
+          // double every memory, with no undo. Opt out with `{"dedupe": false}`
+          // or ?dedupe=0 when duplicate rows are genuinely wanted.
+          const dedupeParam = (url.searchParams.get("dedupe") ?? "").toLowerCase();
           const dedupe =
-            parsed.dedupe === true || ["1", "true"].includes((url.searchParams.get("dedupe") ?? "").toLowerCase());
+            parsed.dedupe === false || ["0", "false"].includes(dedupeParam)
+              ? false
+              : true;
           // require_attestation (body flag or ?require_attestation=1): reject notes without an attestation that verifies.
           const requireAttestation =
             (parsed as { require_attestation?: unknown }).require_attestation === true ||

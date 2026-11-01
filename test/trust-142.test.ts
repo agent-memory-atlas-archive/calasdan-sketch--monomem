@@ -33,7 +33,11 @@ const tmp = (p: string): string => mkdtempSync(join(tmpdir(), p));
 
 async function importInto(b: Store, notes: ImportNote[], opts: { requireAttestation?: boolean } = {}): Promise<{ created: Awaited<ReturnType<Store["importNotes"]>>; report: ImportReport }> {
   const report: ImportReport = { quarantined: [], rejected: [] };
-  const created = await b.importNotes(structuredClone(notes), { report, ...opts });
+  // dedupe is on by default since 2.1.0. These tests deliberately re-import the
+  // same notes into the same store to exercise one attestation policy after
+  // another, so they opt out: with dedupe on, the second import is skipped and
+  // verifies nothing, which would test duplicate handling rather than trust.
+  const created = await b.importNotes(structuredClone(notes), { report, dedupe: false, ...opts });
   return { created, report };
 }
 async function mcp(store: Store, scope: "read" | "write" | "admin", conn: any = {}, opts: any = {}) {

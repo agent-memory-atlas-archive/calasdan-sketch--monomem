@@ -20,7 +20,9 @@ const exported = (s: Store): ImportNote[] => s.exportBatch(0, 1000, { attest: tr
 
 async function importInto(b: Store, notes: ImportNote[]): Promise<{ created: Awaited<ReturnType<Store["importNotes"]>>; att: AttestationReport }> {
   const report: ImportReport = { quarantined: [], rejected: [] };
-  const created = await b.importNotes(structuredClone(notes), { report });
+  // dedupe is on by default since 2.1.0; these tests re-import the same
+  // notes into one store to exercise attestation behaviour, so they opt out.
+  const created = await b.importNotes(structuredClone(notes), { report, dedupe: false });
   return { created, att: report.attestations! };
 }
 
