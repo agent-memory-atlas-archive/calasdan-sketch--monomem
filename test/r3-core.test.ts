@@ -468,7 +468,18 @@ describe("6-8: data dir, warnings, first-run output", () => {
   test("CLI: no SQLite ExperimentalWarning; init prints `onememory mcp`; doctor flags node_modules data", async () => {
     const dir = tmp();
     try {
-      const env = { ONEMEMORY_HOME: join(dir, "home"), ONEMEMORY_DB_PATH: join(dir, "node_modules", "x", "state.db") };
+      // HOME/USERPROFILE must point at the sandbox too: `doctor` looks for the
+      // SessionStart hook in ~/.claude/settings.json, so without this the test
+      // read the DEVELOPER's real settings. On a machine where the hook is
+      // actually wired, doctor printed "hook wired" instead of the link below
+      // and this test failed -- it passed only on a clean CI runner, i.e. it
+      // failed precisely on the machines that use the product.
+      const env = {
+        ONEMEMORY_HOME: join(dir, "home"),
+        ONEMEMORY_DB_PATH: join(dir, "node_modules", "x", "state.db"),
+        HOME: join(dir, "home"),
+        USERPROFILE: join(dir, "home"),
+      };
       const ch = await cli(["changes", "--since", "1h"], env);
       assert.equal(ch.code, 0, ch.err);
       assert.doesNotMatch(ch.err, /ExperimentalWarning/);

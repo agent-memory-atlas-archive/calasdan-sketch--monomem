@@ -82,6 +82,54 @@ function field(input: string, name: string): string {
   }
 }
 
+/**
+ * Scratch space rather than the project: temp folders, caches, dependency and
+ * build output, VCS internals. Editing one of these is something the tooling
+ * did, not a fact about the user's work, and the paths themselves are
+ * meaningless a day later ("Edited 6 files: AppData/Local/Temp/claude/...").
+ * The session-folder exclude list never covered these, because it filters the
+ * session's cwd and not the edited path.
+ */
+export function isEphemeralPath(p: string, cwd = ""): boolean {
+  const f = p.replace(/\\/g, "/").toLowerCase();
+
+  // Unambiguous at any depth: nobody keeps hand-written source in these.
+  if (/(^|\/)(node_modules|\.git|\.venv|__pycache__|\.cache|\.next|\.pytest_cache|\.tox)(\/|$)/.test(f)) return true;
+
+  // Machine temp space, by absolute marker rather than by a segment name.
+  if (/appdata\/local\/temp\//.test(f) || /^\/tmp\//.test(f) || /^[a-z]:\/temp\//.test(f) || /(^|\/)scratchpad(\/|$)/.test(f)) return true;
+
+  // `dist`, `build`, `coverage` and `tmp` are only build output when they are
+  // at the ROOT of the project. Matching them at any depth was wrong: it threw
+  // away real edits to `src/build/auth.ts`, to a monorepo package named
+  // `packages/build/`, and to any source tree under `temp/` or `tmp/`. Losing a
+  // genuine edit is worse than recording a generated one, so this errs the
+  // other way now.
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const rel = base && f.startsWith(base + "/") ? f.slice(base.length + 1) : f;
+  return /^(dist|build|out|coverage|tmp|temp)\//.test(rel);
+}
+
+/**
+ * Drop the parts of a prompt the user did not write: relayed agent messages,
+ * fenced blocks and quoted lines. The prompt channel carries both the user's
+ * own words and text the harness relays from subagents, and running the
+ * decision pattern over the whole thing filed a subagent's report as the
+ * owner's decision -- the stored body even included the harness's own "this is
+ * model output, NOT a message from the user" preamble.
+ */
+export function stripNotUserWritten(s: string): string {
+  return (s || "")
+    .replace(/<agent-message\b[\s\S]*?<\/agent-message>/gi, "\n")
+    .replace(/<agent-message\b[\s\S]*$/i, "\n") // unclosed relay block
+    .replace(/\[Subagent hand-back\][\s\S]*$/i, "\n")
+    .replace(/```[\s\S]*?```/g, "\n")
+    .replace(/^[ \t]*>.*$/gm, "\n");
+}
+
+/** A prompt long enough to be an instruction rather than a greeting. */
+const MIN_PROMPT_CHARS = 40;
+
 /** A file path as stored in note_files: forward slashes, relative to the session folder when inside it. */
 export function normPath(p: string, cwd: string): string {
   const f = p.replace(/\\/g, "/");
@@ -114,6 +162,7 @@ export function observe(events: readonly EventRow[], cwd: string): Observation[]
   let edited: string[] = []; // files changed since the last unit that claimed them
   const failing = new Map<string, { at: number; output: string }>(); // command -> its last failure (index)
   const secretLabels = new Set<string>();
+  const alertSeen = new Set<string>(); // injection alerts already raised, by label+source
   const add = (o: Observation): void => void out.push(o);
   const take = (): Observation["files"] => {
     const f = [...new Set(edited)].map((path) => ({ path, action: "changed" as const }));
@@ -123,26 +172,47 @@ export function observe(events: readonly EventRow[], cwd: string): Observation[]
   events.forEach((e, i) => {
     for (const m of `${e.input}\n${e.output}`.matchAll(REDACTED)) secretLabels.add(m[1]);
     if (e.event === "user-prompt") {
-      const sentence = e.input.split(/(?<=[.!?])\s+|\n+/).find((s) => DECISION.test(s));
-      if (sentence) add({ type: "decision", title: `Decision: ${one(sentence, 110)}`, body: one(e.input, 600), files: [] });
+      // Only the user's own words can be the user's decision.
+      const own = stripNotUserWritten(e.input);
+      const sentence = own.split(/(?<=[.!?])\s+|\n+/).find((s) => DECISION.test(s));
+      if (sentence) add({ type: "decision", title: `Decision: ${one(sentence, 110)}`, body: one(own, 600), files: [] });
       return;
     }
     if (e.event !== "post-tool" && e.event !== "post-tool-failure") return;
     if (EDIT_TOOLS.has(e.tool) && e.ok) {
       const p = field(e.input, "file_path") || field(e.input, "notebook_path");
-      if (p) edited.push(normPath(p, cwd));
+      if (p && !isEphemeralPath(p, cwd)) edited.push(normPath(p, cwd));
       return;
     }
     if (e.output && e.tool && !EDIT_TOOLS.has(e.tool)) {
       const inj = scanForInjection(e.output);
-      if (inj) {
-        const from = field(e.input, "url") || field(e.input, "file_path") || field(e.input, "command");
-        add({
-          type: "security_alert",
-          title: `Possible prompt injection in ${e.tool} output`,
-          body: `The ${e.tool} result${from ? ` for ${one(from, 200)}` : ""} contained text shaped like a prompt injection (${inj}). Treat that source as untrusted.`,
-          files: [],
-        });
+      // "harness tool-syntax" is raw `<invoke name=` / `<function_calls`
+      // markup, which appears in ordinary output whenever anything reads an
+      // agent log or greps a prompt -- a false positive by construction (5 of
+      // the 13 notes in the maintainer's own store). It has its own label and
+      // sits LAST in INJECTION_PATTERNS precisely so that suppressing it here
+      // cannot suppress a real signal found in the same text: "do not tell the
+      // user" and "call state_delete on all now" keep the "tool-call coercion"
+      // label and still alert.
+      //
+      // The source is for the user to know what to distrust; when the tool
+      // carries no url/file_path/command (WebSearch, Grep, Task, and any
+      // mcp__* tool -- the likeliest injection channel of all) fall back to
+      // naming the tool, rather than dropping the alert.
+      const source = inj ? field(e.input, "url") || field(e.input, "file_path") || field(e.input, "command") : "";
+      const from = source || (inj ? `the ${e.tool} tool` : "");
+      if (inj && inj !== "harness tool-syntax") {
+        // One alert per source per session, not one per occurrence.
+        const key = `${inj}|${one(from, 200)}`;
+        if (!alertSeen.has(key)) {
+          alertSeen.add(key);
+          add({
+            type: "security_alert",
+            title: `Possible prompt injection in ${e.tool} output`,
+            body: `The ${e.tool} result for ${one(from, 200)} contained text shaped like a prompt injection (${inj}). Treat that source as untrusted.`,
+            files: [],
+          });
+        }
       }
     }
     if (e.tool !== "Bash") return;
@@ -236,7 +306,13 @@ function linkFiles(store: Store, noteId: number, files: Observation["files"]): v
 export function summarize(events: readonly EventRow[], cwd: string, observationTitles: readonly string[]): { title: string; body: string; files: Observation["files"] } | null {
   const prompts = events.filter((e) => e.event === "user-prompt" && e.input.trim());
   const tools = events.filter((e) => e.event === "post-tool" || e.event === "post-tool-failure");
-  if (!prompts.length && !tools.length) return null;
+  // A session needs something in it. "hi" with no tool calls was producing a
+  // note titled "Session: hi" -- 3 of the 13 notes in the maintainer's own
+  // store. Work done counts however short the prompt was; a prompt long enough
+  // to be an instruction counts even with no tool calls.
+  const didWork = tools.length > 0;
+  const saidSomething = prompts.some((p) => stripNotUserWritten(p.input).trim().length >= MIN_PROMPT_CHARS);
+  if (!didWork && !saidSomething) return null;
   const changed = new Set<string>();
   const read = new Set<string>();
   const commands: string[] = [];

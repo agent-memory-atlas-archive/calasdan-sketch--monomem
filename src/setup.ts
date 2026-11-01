@@ -274,10 +274,25 @@ export interface SetupPlan {
   conflicts: string[];
 }
 
-const MIN_NODE = 24;
+// The floor is set by `node:sqlite`, which is how notes are stored.
+// It landed in Node 22.5.0 and is importable with no flag from then on, so
+// 22.5.0 is the real minimum. (It asked for 24 until 2.1.0, which refused to
+// run on the whole current Node 22 LTS line for no technical reason -- by far
+// the biggest install barrier this package had.) The minor number matters:
+// Node 22.4 has no `node:sqlite` at all, so a major-only test would let it
+// through and the first database call would crash.
+const MIN_NODE_MAJOR = 22;
+const MIN_NODE_MINOR = 5;
+export const MIN_NODE_TEXT = `${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`;
 
 export function nodeIsOk(v: string): boolean {
-  return Number(v.split(".")[0]) >= MIN_NODE;
+  const m = /^v?(\d+)\.(\d+)\./.exec(v.trim());
+  if (!m) return false; // unparseable: refuse rather than assume it is new enough
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  if (major > MIN_NODE_MAJOR) return true;
+  if (major < MIN_NODE_MAJOR) return false;
+  return minor >= MIN_NODE_MINOR;
 }
 
 export function readTextFile(file: string): string | null {
@@ -605,6 +620,8 @@ export function lineDiff(before: string, after: string, file: string): string[] 
 // ---- writing: backup + atomic + re-read ----------------------------------------------------------------------------------
 
 export interface WrittenChange {
+  /** Which client this entry configured, so callers can group by vendor. */
+  client: ClientId;
   file: string;
   /** Resolved real file (the target of a symlink). */
   real: string;
@@ -736,7 +753,7 @@ export function writeChange(e: SetupEnv, change: FileChange): WrittenChange | nu
     // Read back: our edit must be there (a program holding an older copy could have written it over).
     const back = readFileSync(real, "utf8");
     const stillThere = appliedFor(back, change.ops, change.format);
-    if (stillThere) return { file, real, backup, createdFile: buf === null, afterSha: sha(back), inverse: change.inverse, label: change.label, ...(change.format ? { format: change.format } : {}) };
+    if (stillThere) return { client: change.client, file, real, backup, createdFile: buf === null, afterSha: sha(back), inverse: change.inverse, label: change.label, ...(change.format ? { format: change.format } : {}) };
     if (attempt === 4) throw new Error(`${file} keeps being rewritten by another program, so the change did not stay. Close Claude Code and run setup again.`);
     sleepSync(80);
   }
@@ -883,9 +900,9 @@ function describeSchema(v: number | null, current: number): string {
 export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Promise<number> {
   if (!nodeIsOk(e.nodeVersion)) {
     io.err(
-      `OneMemory needs Node.js ${MIN_NODE} or newer, and this computer has Node ${e.nodeVersion}.\n` +
-        `  Fix: install Node ${MIN_NODE} (https://nodejs.org), open a NEW terminal, check with:  node -v\n` +
-        "  Then run this again. Nothing was changed. (No Node 24? Docker works too: see INSTALL.md.)"
+      `OneMemory needs Node.js ${MIN_NODE_TEXT} or newer, and this computer has Node ${e.nodeVersion}.\n` +
+        `  Fix: install Node 22.5+ or 24 LTS (https://nodejs.org), open a NEW terminal, check with:  node -v\n` +
+        "  Then run this again. Nothing was changed. (Can't upgrade Node? Docker works too: see INSTALL.md.)"
     );
     return 1;
   }
@@ -993,7 +1010,7 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
   let n = 1;
   for (const c of plan.changes) for (const l of c.lines) io.out(`  ${l.startsWith("note:") ? "   " : `${n++}. ${c.label}: `}${l}`);
   for (const d of dbs) io.out(`  ${n++}. Database ${d}: ${describeSchema(Store.peekSchemaVersion(d), SCHEMA_VERSION)}`);
-  if (!opts.noTestNote) io.out(`  ${n++}. Write a first test note ("OneMemory is connected") and read it back, so you know it works`);
+  if (!opts.noTestNote) io.out(`  ${n++}. Write a test note, read it back and delete it, so you know writing, reading and deleting all work (your store is left empty)`);
   io.out(`  ${n++}. Run \`onememory doctor\` and tell you how to check it inside Claude Code`);
   for (const a of plan.already) io.out(`  (already fine) ${a}`);
   for (const w of plan.warnings) io.out(`  (careful) ${w}`);
@@ -1061,8 +1078,15 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
         const s = new Store(d);
         try {
           if (!opts.noTestNote) {
-            const have = s.list({ limit: 1, withTags: ["setup-check"] });
-            if (have.total === 0) {
+            // An install from before 2.1.0 still holds the note setup used to
+            // leave behind. Clear it, or every existing user keeps the
+            // installer's note about the installer for good and never gets the
+            // cleaned-up behaviour -- the earlier fix only helped new stores.
+            const old = s.list({ limit: 50, withTags: ["setup-check"] });
+            let removed = 0;
+            for (const n of old.notes) if (s.delete(n.id)) removed++;
+            if (removed) io.out(`Database ${d}: removed ${removed} leftover test note${removed === 1 ? "" : "s"} from an earlier install — your store is yours now.`);
+            {
               const note = s.create({
                 title: "OneMemory is connected",
                 body: "This note was written by `onememory setup` to check that writing and reading work. You can delete it any time.",
@@ -1071,8 +1095,14 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
               });
               const back = s.read(note.id); // gate-ok: setup reads back the test note it wrote a moment ago
               if (!back || back.title !== note.title || back.body !== note.body) throw new Error("the test note was written but did not read back the same");
-              io.out(`Database ${d}: test note #${note.id} written and read back.`);
-            } else io.out(`Database ${d}: opens fine (a test note is already there).`);
+              // Then remove it, so a brand-new store starts empty. Leaving it
+              // behind made the installer's own note a permanent memory (1 of
+              // the 13 notes in the maintainer's own store), and it was the
+              // first thing a user ever searched for. Deleting it also proves
+              // one more operation works than the old check did.
+              if (!s.delete(note.id)) throw new Error("the test note was written and read back, but could not be deleted");
+              io.out(`Database ${d}: test note written, read back and cleaned up.`);
+            }
           } else io.out(`Database ${d}: opens fine.`);
         } finally {
           s.close();
@@ -1144,12 +1174,59 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
     io.err(`\nWarning: ${missing.join(", ")} was changed by another program just after I wrote it, and the OneMemory entry is gone. Close Claude Code completely, then run setup again.`);
     return 1;
   }
-  io.out("\nDone. To check it inside Claude Code:");
-  io.out("  1. Close every Claude Code window, then open Claude Code again.");
-  io.out("  2. Type  /mcp  : you should see  onememory  connected (a green dot or the word connected).");
-  io.out("  3. Ask: \"Search my memory for 'OneMemory is connected'\". It should find the test note.");
-  io.out("  If it is missing or red: docs/live-claude-code.md has the fixes. To go back: onememory setup --undo");
+  // The last thing setup says is the only thing most people will act on, so
+  // spend it proving the ONE claim this product makes: a fact told to one
+  // assistant is known by another. It used to end by asking the user to search
+  // for the note the installer had just written about the installer -- proof
+  // that OneMemory could talk to itself, in the slot where attention peaks.
+  const proof = proofPair(written);
+  io.out("\nDone. Restart any assistant that was open, so it picks up the new entry.");
+  io.out("  Check it loaded: type  /mcp  (or your tool's equivalent) and look for  onememory  connected.");
+  if (proof) {
+    io.out(`\nOne memory, ${proof.sameVendor ? "two assistants" : "two companies' assistants"}. Thirty seconds to see it:`);
+    io.out(`  1. In ${proof.a}, say:   Remember: my staging server is on port 8443.`);
+    io.out(`  2. In ${proof.b}, ask:   What port is my staging server on?`);
+    // Never assert what the other assistant WILL say: it searches memory only
+    // if it decides to, and some hosts have no session-start hook at all. An
+    // installer that over-promises in its last line is worse than one that
+    // under-promises, so give the recovery instead of a guarantee.
+    io.out(`\n  ${proof.b} was never told, and nothing left this machine. If it says it does not know,`);
+    io.out("  ask it to search your memory — some assistants only look when you ask.");
+    io.out("\n  Then ask either one:   Who wrote that note, and when?");
+    io.out("  Every memory names the assistant that wrote it. That is the part other memory");
+    io.out("  servers skip: when two agents disagree, you can see which one to believe.");
+  } else {
+    io.out("\nNow prove it (about 30 seconds):");
+    io.out("  1. Say:   Remember: my staging server is on port 8443.");
+    io.out("  2. Start a brand-new chat and ask:   What port is my staging server on?");
+    io.out("\n  The new chat was never told. It answers 8443. Wire up a second assistant with `onememory setup` and the same memory follows you there.");
+  }
+  io.out("\nIf onememory is missing or red: docs/live-claude-code.md has the fixes. To go back: onememory setup --undo");
   return 0;
+}
+
+/**
+ * Two configured clients to demonstrate cross-assistant recall with, preferring
+ * two different vendors so the claim in the closing message is literally true.
+ * Returns undefined when only one real client was wired (then there is no
+ * cross-assistant claim to make, and setup must not pretend otherwise).
+ */
+export function proofPair(written: { client: string; label: string }[]): { a: string; b: string; sameVendor: boolean } | undefined {
+  const vendorOf = (id: string): string =>
+    id.startsWith("claude") ? "anthropic" : id === "codex" ? "openai" : id.startsWith("gemini") ? "google" : id;
+  // `project` is a file in this folder, not an assistant someone can open.
+  const seen = new Map<string, { client: string; label: string }>();
+  for (const w of written) {
+    if (w.client === "project") continue;
+    if (!seen.has(w.client)) seen.set(w.client, w);
+  }
+  const clients = [...seen.values()];
+  if (clients.length < 2) return undefined;
+  for (const a of clients) {
+    const b = clients.find((c) => vendorOf(c.client) !== vendorOf(a.client));
+    if (b) return { a: a.label, b: b.label, sameVendor: false };
+  }
+  return { a: clients[0].label, b: clients[1].label, sameVendor: true };
 }
 
 function primaryDbIfCustom(primary: string, std: string, opts: SetupOptions): string | undefined {

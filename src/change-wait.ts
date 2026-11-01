@@ -132,10 +132,16 @@ function sleepUntilWake(store: Store, head: number, ms: number, signal?: AbortSi
         }
         schedule();
       }, Math.max(10, Math.round(waitPollMs() * (0.8 + Math.random() * 0.4))));
-      poll.unref();
+      poll.unref(); // only an optimisation: the timeout below guarantees settlement
     };
     schedule();
-    timer.unref();
+    // The timeout stays REF'd on purpose. Unref'ing every handle let the event
+    // loop drain while this promise was still pending, so an awaiting caller
+    // never got a result and the process just exited -- a silent failure rather
+    // than a timeout. A server survived it because its listener held the loop
+    // open; anything else awaiting waitForChanges did not. The hold is bounded
+    // by `ms` (<= WAIT_MAX_SECONDS) and shutdown calls abortAllWaiters(), which
+    // runs done() and clears this timer, so nothing delays process exit.
     function done(): void {
       clearTimeout(timer);
       clearTimeout(poll);

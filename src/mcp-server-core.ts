@@ -158,9 +158,14 @@ function quarantinedResult(e: QuarantinedError) {
     quarantined: {
       id: e.quarantineId,
       reasons: e.findings,
+      // Do NOT name memory_quarantine here: it is not in DEFAULT_TOOLS, so on
+      // a plain install this told the assistant to call a tool it had not been
+      // given -- the user was asked for an action nobody could take. Point at
+      // the surfaces that always exist instead.
       message:
         "This write was held for admin review by the memory linter and is not stored as a note yet. " +
-        "An admin can approve or reject it with memory_quarantine.",
+        "An admin can approve or reject it in the OneMemory dashboard, or with `onememory quarantine` " +
+        "(and through the memory_quarantine tool where ONEMEMORY_TOOLS makes it available).",
     },
   });
 }
@@ -219,6 +224,44 @@ export interface ConnectionCtx {
  * `opts.namespace` is unset, behavior is exactly the legacy one --
  * model-supplied namespaces are honored.
  */
+/**
+ * The tools an assistant needs for memory to work: save, find, read, list,
+ * forget, the session catch-up, and the two-step replace that lets an agent
+ * correct a memory without silently overwriting one.
+ *
+ * Everything else -- history and version restore, consolidation, edge rebuild,
+ * quarantine, trust policy, stats, timelines, the command-task queue and the
+ * runner status -- is operator tooling. It stays available behind
+ * ONEMEMORY_TOOLS but is not worth the context it costs on every single turn
+ * of every session.
+ */
+export const DEFAULT_TOOLS: readonly string[] = [
+  "state_write",
+  "state_read",
+  "state_search",
+  "state_relevant",
+  "state_list",
+  "state_delete",
+  "catch_up",
+  "memory_supersede_preview",
+  "memory_supersede_confirm",
+];
+
+/**
+ * Which tools to register. `null` means every tool (no filtering).
+ *
+ * ONEMEMORY_TOOLS: unset or "core" -> DEFAULT_TOOLS; "all" -> everything;
+ * otherwise a comma-separated list, added to the core set so a typo cannot
+ * leave a server with no way to read or write memory.
+ */
+export function enabledToolNames(env: NodeJS.ProcessEnv = process.env): Set<string> | null {
+  const raw = (env.ONEMEMORY_TOOLS ?? "").trim().toLowerCase();
+  if (raw === "all") return null;
+  if (!raw || raw === "core" || raw === "default") return new Set(DEFAULT_TOOLS);
+  const extra = raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return new Set([...DEFAULT_TOOLS, ...extra]);
+}
+
 export function createMcpServer(
   store: Store,
   scope: Scope = "admin",
@@ -232,9 +275,17 @@ export function createMcpServer(
 
   // Stamp the connection's label on every write a tool makes (change_log.actor),
   // by running each tool handler inside the actor context.
+  const enabled =
+    opts.tools === "all" ? null : opts.tools ? new Set(opts.tools) : enabledToolNames();
   const registerRaw = server.registerTool.bind(server) as (...a: unknown[]) => unknown;
-  (server as unknown as { registerTool: (...a: unknown[]) => unknown }).registerTool = (name: unknown, cfg: unknown, handler: unknown) =>
-    registerRaw(name, cfg, (...args: unknown[]) => {
+  (server as unknown as { registerTool: (...a: unknown[]) => unknown }).registerTool = (name: unknown, cfg: unknown, handler: unknown) => {
+    // Every registered tool's name and description is sent to the model on
+    // every turn, so an unused tool is a cost paid continuously. Registering
+    // all 32 made the first measurable effect of installing OneMemory a bigger
+    // context bill, and gave the model a long menu to pick the wrong item from
+    // (several hosts also cap how many tools they will accept).
+    if (enabled && !enabled.has(name as string)) return undefined;
+    return registerRaw(name, cfg, (...args: unknown[]) => {
       // include_distrusted turns the trust policy OFF for the call: admin only, for every tool.
       // A read/write connection (or an agent a hostile note talked into asking) gets a refusal.
       const first = args[0] as { include_distrusted?: unknown; namespace?: unknown } | undefined;
@@ -258,6 +309,7 @@ export function createMcpServer(
       }
       return actorStore.run({ label: conn.label ?? "", authed: conn.authed === true }, () => (handler as (...x: unknown[]) => unknown)(...args));
     });
+  };
 
   const denyIfUnder = (need: Scope): string | null =>
     scopeAllows(scope, need) ? null : `this token lacks the required '${need}' scope`;

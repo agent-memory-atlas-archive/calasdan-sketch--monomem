@@ -37,7 +37,9 @@ const CLI = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.js")
 
 async function importInto(b: Store, notes: ImportNote[]): Promise<{ created: Awaited<ReturnType<Store["importNotes"]>>; report: ImportReport }> {
   const report: ImportReport = { quarantined: [], rejected: [] };
-  const created = await b.importNotes(structuredClone(notes), { report });
+  // dedupe is on by default since 2.1.0; these tests re-import the same
+  // notes into one store to exercise attestation behaviour, so they opt out.
+  const created = await b.importNotes(structuredClone(notes), { report, dedupe: false });
   return { created, report };
 }
 async function mcp(store: Store, scope: "read" | "write" | "admin", conn: any = {}, opts: any = {}) {

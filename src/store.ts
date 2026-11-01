@@ -4439,8 +4439,12 @@ export class Store {
       /**
        * Idempotent restore: skip a note when the store already holds one with
        * the same namespace + title + created_at + body (re-running an import
-       * after an interruption, or importing your own export twice). Off by
-       * default, so existing callers behave exactly as before.
+       * after an interruption, or importing your own export twice).
+       *
+       * ON by default since 2.1.0. It used to be opt-in, which meant the
+       * ordinary mistake -- syncing or restoring twice -- silently doubled
+       * every memory in the store, and there is no undo for that. Pass
+       * `dedupe: false` only when duplicate rows are genuinely wanted.
        */
       dedupe?: boolean;
       /**
@@ -4508,7 +4512,14 @@ export class Store {
             });
             continue;
           }
-          if (opts.dedupe && this.hasImportTwin(note)) {
+          // Skipping a duplicate must never skip a CHECK. Under
+          // requireAttestation the verdict is taken first, below, so a note
+          // that cannot prove its attestation is rejected whether or not the
+          // store already holds something that looks like it -- otherwise
+          // --require-attestation could be bypassed simply by resembling a row
+          // that is already there.
+          const twin = opts.dedupe !== false && this.hasImportTwin(note);
+          if (twin && !requireAttestation) {
             if (opts.report) opts.report.skipped = (opts.report.skipped ?? 0) + 1;
             continue;
           }
@@ -4523,6 +4534,11 @@ export class Store {
                 title: note.title,
                 error: `no verified attestation (${verdict.reason}); import attestation is required (--require-attestation / ONEMEMORY_IMPORT_REQUIRE_ATTESTATION)`,
               });
+              continue;
+            }
+            // Attestation satisfied; now honour the duplicate skip.
+            if (twin) {
+              if (opts.report) opts.report.skipped = (opts.report.skipped ?? 0) + 1;
               continue;
             }
             const carried = verdict.ok ? this.attestedProvenance(note, verdict.attester.server_id) : null;

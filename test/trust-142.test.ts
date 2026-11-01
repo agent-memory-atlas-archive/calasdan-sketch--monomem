@@ -33,7 +33,11 @@ const tmp = (p: string): string => mkdtempSync(join(tmpdir(), p));
 
 async function importInto(b: Store, notes: ImportNote[], opts: { requireAttestation?: boolean } = {}): Promise<{ created: Awaited<ReturnType<Store["importNotes"]>>; report: ImportReport }> {
   const report: ImportReport = { quarantined: [], rejected: [] };
-  const created = await b.importNotes(structuredClone(notes), { report, ...opts });
+  // dedupe is on by default since 2.1.0. These tests deliberately re-import the
+  // same notes into the same store to exercise one attestation policy after
+  // another, so they opt out: with dedupe on, the second import is skipped and
+  // verifies nothing, which would test duplicate handling rather than trust.
+  const created = await b.importNotes(structuredClone(notes), { report, dedupe: false, ...opts });
   return { created, report };
 }
 async function mcp(store: Store, scope: "read" | "write" | "admin", conn: any = {}, opts: any = {}) {
@@ -49,8 +53,14 @@ function cli(home: string, args: string[], env: Record<string, string> = {}) {
 
 describe("the harness is hermetic", () => {
   test("no ONEMEMORY_* variable from the developer's shell reaches the suite (npm test preloads dist/test/setup-env.js)", () => {
-    const left = Object.keys(process.env).filter((k) => k.startsWith("ONEMEMORY_") && k !== "ONEMEMORY_HOME");
+    // ONEMEMORY_HOME and ONEMEMORY_TOOLS are set BY setup-env.js on purpose
+    // (a throwaway data directory, and the full tool surface so the suite can
+    // exercise the operator tools a plain install no longer registers). Any
+    // other ONEMEMORY_* variable means the developer's shell leaked in.
+    const deliberate = new Set(["ONEMEMORY_HOME", "ONEMEMORY_TOOLS"]);
+    const left = Object.keys(process.env).filter((k) => k.startsWith("ONEMEMORY_") && !deliberate.has(k));
     assert.deepEqual(left, []);
+    assert.equal(process.env.ONEMEMORY_TOOLS, "all", "the suite runs against the full tool surface");
     assert.ok(process.env.ONEMEMORY_HOME?.includes("onememory-test-home-"), "the data directory is a throwaway one");
   });
 });
@@ -243,9 +253,13 @@ describe("3: notes imported without a verified attestation are flagged, and can 
     const strict = cli(home, ["import", "--file", file, "--require-attestation"]);
     assert.equal(strict.status, 1, strict.stdout + strict.stderr);
     assert.match(strict.stderr, /attestation is required/);
+    // The note is already in this store (it was created directly above), so a
+    // plain re-import is a duplicate. --require-attestation must still reject
+    // it -- a duplicate skip must never skip a check -- and the default run
+    // then skips it as a duplicate, which is what dedupe is for.
     const lax = cli(home, ["import", "--file", file]);
     assert.equal(lax.status, 0, lax.stderr);
-    assert.match(lax.stdout, /Imported 1 note/);
+    assert.match(lax.stdout, /skipped 1 already present/);
     rmSync(home, { recursive: true, force: true });
   });
 });

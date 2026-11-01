@@ -134,10 +134,6 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
   ],
   [
     "tool-call coercion",
-    /<\/?(?:function_calls|antml:invoke|antml:function_calls|tool_use|tool_call)\b|<invoke\s+name=/i,
-  ],
-  [
-    "tool-call coercion",
     /\b(?:do\s+not|don'?t|never)\s+(?:tell|inform|notify|alert|mention\s+(?:this\s+)?to)\s+the\s+user\b/i,
   ],
   [
@@ -150,6 +146,20 @@ const INJECTION_PATTERNS: Array<[string, RegExp]> = [
     // README badge hosts are exempt; plain links (no "!") need a click and pass.
     "markdown exfiltration",
     /!\[[^\]\n]{0,200}\]\(\s*<?https?:\/\/(?!(?:img\.shields\.io|badgen\.net|badge\.fury\.io|codecov\.io)[/:])[^\s)?#]{1,300}\?[^\s)]{0,2000}=/i,
+  ],
+  [
+    // Raw agent tool-call markup. Its OWN label, and deliberately LAST.
+    //
+    // It used to share the "tool-call coercion" label with the two rules above,
+    // which are real attack signals ("do not tell the user", "call state_delete
+    // on all now"). Capture suppresses the harness-syntax label because this
+    // markup appears in ordinary tool output whenever anything reads an agent
+    // log -- so sharing a label meant genuine coercion attempts were suppressed
+    // too, and appending `<invoke name=` to an exfiltration payload masked it,
+    // because scanForInjection returns the FIRST match. Last position means any
+    // real signal in the same text wins the label.
+    "harness tool-syntax",
+    /<\/?(?:function_calls|antml:invoke|antml:function_calls|tool_use|tool_call)\b|<invoke\s+name=/i,
   ],
 ];
 

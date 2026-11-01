@@ -1,9 +1,9 @@
 {
   "name": "onememory-mcp",
-  "version": "2.0.1",
-  "description": "OneMemory — one self-hosted SQLite memory store shared across your AI agents over MCP and a plain REST API, reachable from desktop, web, and your phone.",
+  "version": "2.1.0",
+  "description": "OneMemory — one self-hosted SQLite memory store that Claude, Cursor, Codex, Gemini and any other MCP or REST client all read and write, so a fact you state once is known everywhere.",
   "license": "MIT",
-  "author": "Dan Calas",
+  "author": "Calas Automations Inc.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/calasdan-sketch/onememory.git"
@@ -29,7 +29,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.5.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -64,11 +64,14 @@
     "!docs/RUNNER.md"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "@hono/node-server": "^2.1.5"
   }
 }

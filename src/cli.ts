@@ -101,7 +101,7 @@ function usage(): void {
       "            Full JSON backup (same shape as GET /export) to stdout or a file: {\"notes\": [...]},",
       "            as in every release before 1.4.0. --attest adds an `export` header (this server and",
       "            its public key) and a signed attestation per note, for another server to verify.",
-      "  import --file backup.json [--dedupe] [--json] [--require-attestation]",
+      "  import --file backup.json [--no-dedupe] [--json] [--require-attestation]",
       "            Restore a JSON backup (streamed, so big files are fine). Notes whose attestation verifies against a",
       "            trusted key keep their original writer; everything else is stamped as imported by 'cli' and flagged",
       "            imported_unverified. --require-attestation (or ONEMEMORY_IMPORT_REQUIRE_ATTESTATION=1) rejects those instead.",
@@ -193,11 +193,11 @@ async function doctor(): Promise<void> {
   const warn = (m: string) => console.log("  [warn] " + m);
   console.log("onememory doctor\n");
 
-  const parts = process.versions.node.split(".").map(Number);
-  if (parts[0] >= 24) {
+  const { nodeIsOk, MIN_NODE_TEXT } = await import("./setup.js");
+  if (nodeIsOk(process.versions.node)) {
     ok("Node " + process.versions.node);
   } else {
-    warn("Node " + process.versions.node + " — need >= 24 (for the built-in SQLite)");
+    warn("Node " + process.versions.node + ` — need >= ${MIN_NODE_TEXT} (for the built-in SQLite)`);
   }
 
   const why =
@@ -1283,7 +1283,7 @@ async function importCmd(): Promise<void> {
   const { importMarkdown } = await import("./sync.js");
   const { flags } = parseFlags(process.argv.slice(3), {
     values: ["dir", "file", "project", "namespace", "from", "path"],
-    bools: ["dry-run", "json", "allow-move", "dedupe", "require-attestation", "claude", "yes", "update", "include-index"],
+    bools: ["dry-run", "json", "allow-move", "dedupe", "no-dedupe", "require-attestation", "claude", "yes", "update", "include-index"],
   });
   if (str(flags.from)) {
     const { runForeignImport, FOREIGN_SOURCES } = await import("./foreign-import.js");
@@ -1321,12 +1321,15 @@ async function importCmd(): Promise<void> {
     return;
   }
   if (str(flags.file)) {
-    await importJsonFile(str(flags.file)!, flags["dedupe"] === true, flags.json === true, flags["require-attestation"] === true);
+    // Duplicate protection is ON unless --no-dedupe. It used to be `flags["dedupe"] === true`,
+    // which passed an explicit `dedupe: false` whenever the flag was absent and so beat the
+    // store default -- `onememory import` twice still doubled every note.
+    await importJsonFile(str(flags.file)!, flags["no-dedupe"] !== true, flags.json === true, flags["require-attestation"] === true);
     return;
   }
   if (!str(flags.dir)) {
     console.error("Usage: onememory import --dir <path> [--dry-run] [--allow-move]");
-    console.error("       onememory import --file backup.json [--dedupe] [--json] [--require-attestation]");
+    console.error("       onememory import --file backup.json [--no-dedupe] [--json] [--require-attestation]");
     process.exit(1);
   }
   const store = new Store(DB_PATH);
@@ -1467,7 +1470,7 @@ async function importJsonFile(file: string, dedupe: boolean, json: boolean, requ
         `Import stopped: ${msg}\n` +
           `${imported} note(s) were imported before the error, ${left} were not. ` +
           (imported + (skipped || 0) > 0 || handled > 0
-            ? "Nothing is rolled back. Fix the cause and run the SAME command again with --dedupe: it skips the notes already imported (it recognises them by title, body and created_at, which every export carries) instead of duplicating them."
+            ? "Nothing is rolled back. Fix the cause and run the SAME command again: notes already imported are skipped (recognised by title, body and created_at, which every export carries) rather than duplicated."
             : "Nothing was written.") +
           (deferred ? " Run `onememory rebuild-edges` afterwards." : "")
       );
@@ -2116,13 +2119,17 @@ function askYesNo(prompt: string): Promise<boolean> {
 async function main(): Promise<void> {
   const cmd = process.argv[2] || "start";
   // Old Node: say so in plain words BEFORE anything loads node:sqlite (which would crash with a stack trace).
-  if (Number(process.versions.node.split(".")[0]) < 24 && !["help", "--help", "-h"].includes(cmd)) {
-    console.error(
-      `OneMemory needs Node.js 24 or newer, and this computer has Node ${process.versions.node}.\n` +
-        "  Fix: install Node 24 (https://nodejs.org), open a NEW terminal, check with:  node -v\n" +
-        "  Nothing was changed. (No Node 24? Docker works too: see INSTALL.md.)"
-    );
-    process.exit(1);
+  // setup.js is safe to load here -- it never imports node:sqlite.
+  if (!["help", "--help", "-h"].includes(cmd)) {
+    const { nodeIsOk, MIN_NODE_TEXT } = await import("./setup.js");
+    if (!nodeIsOk(process.versions.node)) {
+      console.error(
+        `OneMemory needs Node.js ${MIN_NODE_TEXT} or newer, and this computer has Node ${process.versions.node}.\n` +
+          "  Fix: install Node 22.5+ or 24 LTS (https://nodejs.org), open a NEW terminal, check with:  node -v\n" +
+          "  Nothing was changed. (Can't upgrade Node? Docker works too: see INSTALL.md.)"
+      );
+      process.exit(1);
+    }
   }
   if (cmd === "--version" || cmd === "-v" || cmd === "version") {
     const { PACKAGE_VERSION } = await import("./config.js");

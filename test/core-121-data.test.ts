@@ -95,24 +95,33 @@ describe("3: export/import keeps archived_at and expires_at", () => {
   });
 });
 
-describe("import idempotency (opt-in dedupe)", () => {
-  test("default import repeats; dedupe:true skips identical notes", async () => {
+describe("import idempotency (dedupe on by default)", () => {
+  test("importing twice does not double the store", async () => {
+    // Was opt-in until 2.1.0, so the ordinary mistake -- restoring or syncing
+    // twice -- silently duplicated every memory, with no undo.
     const a = new Store(":memory:");
     for (let i = 0; i < 3; i++) a.create({ title: `n${i}`, body: `body ${i}` });
     const dump = a.exportAll();
     const b = new Store(":memory:");
-    await b.importNotes(dump);
-    await b.importNotes(dump);
-    assert.equal(b.countAll(), 6, "default behaviour unchanged");
-    const c = new Store(":memory:");
     const report: ImportReport = { quarantined: [], rejected: [] };
-    await c.importNotes(dump, { dedupe: true, report });
-    await c.importNotes(dump, { dedupe: true, report });
-    assert.equal(c.countAll(), 3);
+    await b.importNotes(dump, { report });
+    await b.importNotes(dump, { report });
+    assert.equal(b.countAll(), 3, "the second import adds nothing");
     assert.equal(report.skipped, 3);
     a.close();
     b.close();
-    c.close();
+  });
+
+  test("dedupe:false still allows duplicates for callers that want them", async () => {
+    const a = new Store(":memory:");
+    for (let i = 0; i < 3; i++) a.create({ title: `n${i}`, body: `body ${i}` });
+    const dump = a.exportAll();
+    const b = new Store(":memory:");
+    await b.importNotes(dump, { dedupe: false });
+    await b.importNotes(dump, { dedupe: false });
+    assert.equal(b.countAll(), 6, "explicit opt-out is honoured");
+    a.close();
+    b.close();
   });
 });
 

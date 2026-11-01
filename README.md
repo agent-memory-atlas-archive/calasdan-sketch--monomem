@@ -1,24 +1,29 @@
 # OneMemory
 
-**Memory you can audit.** One small, self-hosted memory store that every AI agent you use can share — over MCP or plain REST, from your desktop, the web, or your phone. Local, no API keys, no hidden model calls; every memory sourced, versioned and undoable, with [benchmarks](#benchmark) to prove it.
+**One memory, every assistant.** A small, self-hosted memory store that Claude, Cursor, Codex, Gemini and anything else speaking MCP or plain REST all read and write — so you tell an AI something once and the rest already know it. Local, no API keys, no hidden model calls; every memory sourced, versioned and undoable, with [benchmarks](#benchmark) to prove it.
 
 [![CI](https://github.com/calasdan-sketch/onememory/actions/workflows/ci.yml/badge.svg)](https://github.com/calasdan-sketch/onememory/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/onememory-mcp)](https://www.npmjs.com/package/onememory-mcp)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Node](https://img.shields.io/badge/node-%3E%3D24-green)
+![Node](https://img.shields.io/badge/node-%3E%3D22.5-green)
 
-Write a note from Claude Code on your desktop; read it back from Claude on
-your phone in a fresh chat. Same store for Claude Code, Claude Desktop,
-claude.ai, Claude mobile, Cursor, Copilot, Cline, Continue, n8n — anything
-that speaks MCP or HTTP.
+Tell one assistant something; every other assistant already knows it. Write a
+note in Claude Code, read it back in Cursor, Gemini CLI or Codex — one store,
+shared across tools from different companies, on your own machine.
+
+`setup` wires up eight clients on this computer: **Claude Code, Claude Desktop,
+Cursor, Codex, Gemini CLI, Muse, VS Code and Zed.** Anything else that speaks
+MCP or HTTP can connect too — including a browser on your phone, if you expose
+the HTTP endpoint yourself ([INFRA.md](./INFRA.md) covers tunnels and phone or
+web access).
 
 ---
 
 ## Quickstart
 
-> **Requires Node.js 24 or newer.** OneMemory uses Node's built-in
-> `node:sqlite`, which does not exist in Node 22 or older. Check with
-> `node -v`. Can't upgrade? Use [Docker](#docker) instead.
+> **Requires Node.js 22.5 or newer** (22.5+ or 24 LTS). OneMemory uses Node's
+> built-in `node:sqlite`, which arrived in 22.5. Check with `node -v`. Can't
+> upgrade? Use [Docker](#docker) instead.
 
 ### Install in 60 seconds
 
@@ -286,8 +291,8 @@ flowchart LR
     REST --> LINT
 ```
 
-Write once from your desktop, read back from your phone — every agent
-shares the same store.
+Write once in one assistant, read it back in another — every agent shares
+the same store.
 
 ## How it compares
 
@@ -302,7 +307,7 @@ publish one. Read their own docs and pick on your needs:
   are all worth a look.
 
 What OneMemory itself provides (all of it checkable in this repo): MIT
-license, Node 24+ with 2 direct runtime dependencies, one SQLite file,
+license, Node 22.5+ with 2 direct runtime dependencies, one SQLite file,
 MCP over stdio and HTTP plus a REST API, optional semantic search with your
 own embeddings endpoint, a change feed that includes deletes, a write-time
 secret and injection linter, Markdown export and three-way import, scoped
@@ -518,4 +523,4 @@ Several ideas were adapted from other open projects, with thanks:
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). Built by Dan Calas / Calas Automations Inc.
+MIT — see [LICENSE](./LICENSE). Built by Calas Automations Inc.
