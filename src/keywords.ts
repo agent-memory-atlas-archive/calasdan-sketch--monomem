@@ -22,40 +22,54 @@
 // are NOT filtered.
 const STOP_WORDS: ReadonlySet<string> = new Set([
   "a", "about", "above", "after", "again", "against", "all", "almost", "also",
-  "always", "am", "among", "an", "and", "another", "any", "anybody", "anyone",
-  "anything", "anywhere", "are", "aren", "around", "as", "at", "be", "became",
+  // NOTE: words that carry polarity are deliberately NOT in this list --
+  // "not", "never", "no", "nor", "none", "always", "only", "cannot" and the
+  // negated contraction halves ("don", "doesn", "isn", ...). Dropping them made
+  // "never use the legacy client" and "always use the legacy client" produce an
+  // identical keyword set, so search could not tell a rule from its opposite
+  // and would answer confidently with the reverse of what was stored. The FTS
+  // index covers the raw title/body/tags, so these terms are already indexed;
+  // only query-side extraction was discarding them.
+  "am", "among", "an", "and", "another", "any", "anybody", "anyone",
+  "anything", "anywhere", "are", "around", "as", "at", "be", "became",
   "because", "become", "becomes", "becoming", "been", "before", "behind",
-  "being", "below", "between", "both", "but", "by", "can", "cannot", "cant",
-  "could", "couldn", "did", "didn", "do", "does", "doesn", "doing", "don",
+  "being", "below", "between", "both", "but", "by", "can",
+  "could", "did", "do", "does", "doing",
   "done", "down", "during", "each", "either", "else", "elsewhere", "enough",
   "even", "ever", "every", "everybody", "everyone", "everything", "everywhere",
   "few", "fewer", "for", "from", "further", "get", "gets", "getting", "got",
-  "had", "hadn", "has", "hasn", "have", "haven", "having", "he", "hello",
+  "had", "has", "have", "having", "he", "hello",
   "her", "here", "hers", "herself", "hey", "hi", "him", "himself", "his", "how", "however", "i",
-  "if", "in", "into", "is", "isn", "it", "its", "itself", "just", "keep",
+  "if", "in", "into", "is", "it", "its", "itself", "just", "keep",
   "kept", "like", "made", "many", "may", "me", "might", "more", "most",
-  "mostly", "much", "must", "my", "myself", "never", "no", "nobody", "none",
-  "nor", "not", "nothing", "now", "nowhere", "of", "off", "often", "on",
-  "once", "one", "only", "onto", "or", "other", "others", "ought", "our",
+  "mostly", "much", "must", "my", "myself",
+  "now", "of", "off", "often", "on",
+  "once", "one", "onto", "or", "other", "others", "ought", "our",
   "ours", "ourselves", "out", "over", "own", "quite", "rather", "really",
   "said", "same", "seem", "seemed", "seeming", "seems", "several", "shall",
-  "she", "should", "shouldn", "since", "so", "some", "somebody", "someone",
+  "she", "should", "since", "so", "some", "somebody", "someone",
   "something", "somewhere", "still", "such", "take", "than", "thank", "thanks",
   "that", "the",
   "their", "theirs", "them", "themselves", "then", "thence", "there",
   "thereafter", "thereby", "therefore", "therein", "thereupon", "these",
   "they", "this", "those", "though", "through", "throughout", "thru", "thus",
   "to", "together", "too", "toward", "towards", "under", "until", "up",
-  "upon", "us", "use", "used", "uses", "very", "via", "was", "wasn", "we",
-  "well", "were", "weren", "what", "whatever", "when", "whence", "whenever",
+  "upon", "us", "use", "used", "uses", "very", "via", "was", "we",
+  "well", "were", "what", "whatever", "when", "whence", "whenever",
   "where", "whereby", "wherein", "whereupon", "wherever", "whether", "which",
   "while", "whither", "who", "whoever", "whom", "whose", "why", "will",
-  "with", "within", "without", "won", "would", "wouldn", "yes", "yet", "you",
+  "with", "within", "without", "would", "yes", "yet", "you",
   "your", "yours", "yourself", "yourselves",
 ]);
 
 /** Max keywords returned -- keeps the downstream FTS fan-out bounded. */
 export const MAX_KEYWORDS = 20;
+
+/**
+ * Tokens under the 3-character minimum that still change what a note means,
+ * so the short-token drop must not swallow them.
+ */
+const SHORT_MEANINGFUL = new Set(["no"]);
 
 function pushKeyword(seen: Set<string>, out: string[], tok: string): void {
   if (seen.has(tok)) return;
@@ -103,8 +117,10 @@ export function extractKeywords(text: string): string[] {
       // Prose token: punctuation becomes a separator, so "don't" -> "don"
       // "t" and "well-known" -> "well" "known".
       for (const part of raw.split(/[^\p{L}\p{N}]+/u).filter(Boolean)) {
-        // Digit carve-out: "s3"/"ec2" survive the short-token drop.
-        if (part.length < 3 && !/\d/.test(part)) continue;
+        // Digit carve-out: "s3"/"ec2" survive the short-token drop. Polarity
+        // carve-out: "no" is two letters and reverses a sentence's meaning, so
+        // it must not be dropped for being short either.
+        if (part.length < 3 && !/\d/.test(part) && !SHORT_MEANINGFUL.has(part)) continue;
         if (STOP_WORDS.has(part)) continue;
         if (bareSeen.has(part)) continue; // hashtag twin already emitted
         bareSeen.add(part);

@@ -44,9 +44,12 @@ describe("extractKeywords", () => {
     assert.deepEqual(kws, ["ate", "pie"]);
   });
 
-  test("contractions split on the apostrophe and drop the stem", () => {
-    // "don't" -> "don" (stop-word) + "t" (too short)
-    assert.deepEqual(extractKeywords("don't worry about it"), ["worry"]);
+  test("contractions split on the apostrophe and keep their negation", () => {
+    // "don't" -> "don" + "t"; "t" is too short to keep, but "don" is the
+    // negation and is kept. It used to be a stop-word, which made "don't
+    // deploy on friday" and "deploy on friday" identical to search -- see
+    // test/keywords-polarity.test.ts.
+    assert.deepEqual(extractKeywords("don't worry about it"), ["don", "worry"]);
   });
 
   test("hashtags are preserved unstemmed and kept even when short", () => {
