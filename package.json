@@ -1,6 +1,6 @@
 {
   "name": "onememory-mcp",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "OneMemory — one self-hosted SQLite memory store that Claude, Cursor, Codex, Gemini and any other MCP or REST client all read and write, so a fact you state once is known everywhere.",
   "license": "MIT",
   "author": "Calas Automations Inc.",

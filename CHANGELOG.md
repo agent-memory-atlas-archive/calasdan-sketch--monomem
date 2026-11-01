@@ -4,7 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.0] - 2026-11-01
+## [2.1.1] - 2026-11-01
+
+`v2.1.0` was tagged but never published: its release run failed on Windows when a test deleted its own
+temp directory while a detached child still held the database open — after every assertion had passed.
+Nothing reached npm. The fix is in, and the version moves on rather than reusing a tag, because a
+published name and version can never be reused and moving one is not worth the risk.
+
 
 **Installs on the Node you already have, and costs about 8,900 fewer tokens per turn.**
 
