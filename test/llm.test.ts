@@ -196,7 +196,34 @@ describe("LLM summarizer", () => {
       }
       assert.equal(title, "Session: Detached title");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      await rmWhenUnlocked(dir);
     }
   });
 });
+
+/**
+ * `rmSync` on a directory a detached child may still hold open.
+ *
+ * This test deliberately leaves a detached process writing the summary, and it
+ * stops polling the moment the row appears -- which is before the child has
+ * closed the database and exited. Windows refuses to unlink an open file, so
+ * the cleanup raced the child and failed the whole test with EBUSY *after*
+ * every assertion had already passed. It blocked a release that way (publish
+ * run 41269181409, Node 22 / windows-latest).
+ *
+ * Retry briefly, then give up quietly: a leftover directory in the OS temp
+ * folder is not worth failing a green test over, and the point of this test is
+ * the timing assertion above, not its housekeeping.
+ */
+async function rmWhenUnlocked(dir: string, attempts = 40): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" && code !== "EPERM" && code !== "ENOTEMPTY") throw err;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+}
