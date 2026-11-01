@@ -1010,7 +1010,7 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
   let n = 1;
   for (const c of plan.changes) for (const l of c.lines) io.out(`  ${l.startsWith("note:") ? "   " : `${n++}. ${c.label}: `}${l}`);
   for (const d of dbs) io.out(`  ${n++}. Database ${d}: ${describeSchema(Store.peekSchemaVersion(d), SCHEMA_VERSION)}`);
-  if (!opts.noTestNote) io.out(`  ${n++}. Write a first test note ("OneMemory is connected") and read it back, so you know it works`);
+  if (!opts.noTestNote) io.out(`  ${n++}. Write a test note, read it back and delete it, so you know writing, reading and deleting all work (your store is left empty)`);
   io.out(`  ${n++}. Run \`onememory doctor\` and tell you how to check it inside Claude Code`);
   for (const a of plan.already) io.out(`  (already fine) ${a}`);
   for (const w of plan.warnings) io.out(`  (careful) ${w}`);
@@ -1088,7 +1088,13 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
               });
               const back = s.read(note.id); // gate-ok: setup reads back the test note it wrote a moment ago
               if (!back || back.title !== note.title || back.body !== note.body) throw new Error("the test note was written but did not read back the same");
-              io.out(`Database ${d}: test note #${note.id} written and read back.`);
+              // Then remove it, so a brand-new store starts empty. Leaving it
+              // behind made the installer's own note a permanent memory (1 of
+              // the 13 notes in the maintainer's own store), and it was the
+              // first thing a user ever searched for. Deleting it also proves
+              // one more operation works than the old check did.
+              if (!s.delete(note.id)) throw new Error("the test note was written and read back, but could not be deleted");
+              io.out(`Database ${d}: test note written, read back and cleaned up.`);
             } else io.out(`Database ${d}: opens fine (a test note is already there).`);
           } else io.out(`Database ${d}: opens fine.`);
         } finally {

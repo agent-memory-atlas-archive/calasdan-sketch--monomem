@@ -287,13 +287,15 @@ describe("setup: making the change", () => {
     assert.equal(readFileSync(b[0], "utf8"), REAL_CLAUDE_JSON, "the backup is the original, byte for byte");
     const store = new Store(s.db);
     try {
-      const notes = store.list({ withTags: ["setup-check"] }).notes;
-      assert.equal(notes.length, 1);
-      assert.equal(notes[0].title, "OneMemory is connected");
+      // Written, read back, then deleted: the check proves all three work and
+      // leaves the user's store empty rather than seeding it with the
+      // installer's own note.
+      assert.equal(store.list({ withTags: ["setup-check"] }).total, 0, "no leftover note");
+      assert.equal(store.list({}).total, 0, "a new store starts empty");
     } finally {
       store.close();
     }
-    assert.match(io.all(), /test note #\d+ written and read back/);
+    assert.match(io.all(), /test note written, read back and cleaned up/);
     assert.match(io.all(), /\/mcp/);
     assert.match(io.all(), /onememory setup --undo/);
   });
@@ -308,14 +310,18 @@ describe("setup: making the change", () => {
     assert.equal(listBackups(ccFile(s.home)).length, 1);
     assert.match(io.all(), /already set up/);
   });
-  test("the test note is written once, not on every run", async () => {
+  test("the test note is cleaned up, so repeated runs leave nothing behind", async () => {
+    // It used to be left in the store, which made the installer's own note a
+    // permanent memory and the first thing a user ever searched for. setup now
+    // writes it, reads it back and deletes it, so a new store starts empty --
+    // and running setup twice still leaves nothing.
     const s = sandbox();
     write(ccFile(s.home), REAL_CLAUDE_JSON);
     await runSetup(s.e, makeIO(), opts({ yes: true, db: s.db }));
     await runSetup(s.e, makeIO(), opts({ yes: true, db: s.db, only: ["claude-code"] }));
     const store = new Store(s.db);
     try {
-      assert.equal(store.list({ withTags: ["setup-check"] }).total, 1);
+      assert.equal(store.list({ withTags: ["setup-check"] }).total, 0);
     } finally {
       store.close();
     }
@@ -456,10 +462,20 @@ describe("setup: undo", () => {
     const s = sandbox();
     write(ccFile(s.home), REAL_CLAUDE_JSON);
     await runSetup(s.e, makeIO(), opts({ yes: true, db: s.db }));
+    // A real memory of the user's, so this asserts something: setup's own test
+    // note is now cleaned up, which would leave an empty store and make a
+    // bare count pass whether undo preserved the data or wiped it.
+    const seed = new Store(s.db);
+    try {
+      seed.create({ title: "my staging server is on port 8443", body: "set during the pilot", tags: [] });
+    } finally {
+      seed.close();
+    }
     await runSetup(s.e, makeIO(), opts({ undo: true }));
     const store = new Store(s.db);
     try {
-      assert.equal(store.list({}).total, 1);
+      assert.equal(store.list({}).total, 1, "the user's note survives undo");
+      assert.equal(store.list({}).notes[0].title, "my staging server is on port 8443");
     } finally {
       store.close();
     }
@@ -515,7 +531,9 @@ describe("setup: moving from claude-bridge", () => {
     assert.equal(Store.peekSchemaVersion(back), 13, "and it is still the OLD format");
     const st = new Store(oldDb);
     try {
-      assert.equal(st.list({}).total, 4, "3 old notes + the test note");
+      // The 3 migrated notes and nothing else: setup's test note is written,
+      // read back and deleted, so it never lands in the user's store.
+      assert.equal(st.list({}).total, 3, "the 3 migrated notes, with no leftover from setup");
       assert.ok(st.list({}).notes.some((n) => n.title === "Release cadence"));
     } finally {
       st.close();

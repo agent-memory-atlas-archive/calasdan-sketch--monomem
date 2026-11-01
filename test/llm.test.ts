@@ -144,7 +144,15 @@ describe("LLM summarizer", () => {
       reply = answer("Wired title\nThe body.");
       seen.length = 0;
       const p = { session_id: "h1", cwd: "/w" };
-      await captureHook("user-prompt", { ...p, prompt: "do the thing" }, { dbPath: db, dataDir: dir, env });
+      // A prompt with something in it: a session holding only "do the thing"
+      // and no tool calls is summarised as nothing at all now, which would
+      // mean no summary and therefore no model call, testing the floor rather
+      // than the wiring this test is about.
+      await captureHook(
+        "user-prompt",
+        { ...p, prompt: "Switch the payments client over to the new refunds endpoint and update the tests." },
+        { dbPath: db, dataDir: dir, env }
+      );
       await captureHook("stop", p, { dbPath: db, dataDir: dir, env });
       assert.equal(seen.length, 0, "no call at stop");
       await captureHook("session-end", p, { dbPath: db, dataDir: dir, env: {}, llmInline: true });
@@ -168,7 +176,14 @@ describe("LLM summarizer", () => {
       const slow = answer("Detached title\nThe body.");
       reply = (req, body, res) => void setTimeout(() => slow(req, body, res), 1500);
       const p = { session_id: "d1", cwd: "/w" };
-      await captureHook("user-prompt", { ...p, prompt: "do the thing" }, { dbPath: db, dataDir: dir, env });
+      // Substantial enough to be summarised at all (see the floor in
+      // extract.ts); this test is about session-end not blocking, not about
+      // what counts as worth remembering.
+      await captureHook(
+        "user-prompt",
+        { ...p, prompt: "Move the refunds flow onto the new payments client and cover it with tests." },
+        { dbPath: db, dataDir: dir, env }
+      );
       const t0 = Date.now();
       await captureHook("session-end", p, { dbPath: db, dataDir: dir, env });
       assert.ok(Date.now() - t0 < 1500, `session-end waited ${Date.now() - t0} ms for the model`);
