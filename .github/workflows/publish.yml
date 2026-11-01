@@ -34,19 +34,25 @@ jobs:
   # The same matrix CI runs on a push. A tag that is pushed before (or without) a green CI run must not
   # reach npm, so publishing waits for build + test on every platform.
   verify:
-    name: build & test (${{ matrix.os }})
+    name: build & test (Node ${{ matrix.node }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: true
+      # fail-fast cancelled the other platforms as soon as one failed, so a
+      # single Windows flake hid whether the release was actually broken
+      # everywhere or just on one runner. Let all three report.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22", "24"]
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          # The matrix value, not a hard-coded 24: the supported floor is
+          # 22.5, so a release must be proved on 22 as well as 24.
+          node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm run build
       - run: npm test

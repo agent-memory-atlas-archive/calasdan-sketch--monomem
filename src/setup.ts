@@ -620,6 +620,8 @@ export function lineDiff(before: string, after: string, file: string): string[] 
 // ---- writing: backup + atomic + re-read ----------------------------------------------------------------------------------
 
 export interface WrittenChange {
+  /** Which client this entry configured, so callers can group by vendor. */
+  client: ClientId;
   file: string;
   /** Resolved real file (the target of a symlink). */
   real: string;
@@ -751,7 +753,7 @@ export function writeChange(e: SetupEnv, change: FileChange): WrittenChange | nu
     // Read back: our edit must be there (a program holding an older copy could have written it over).
     const back = readFileSync(real, "utf8");
     const stillThere = appliedFor(back, change.ops, change.format);
-    if (stillThere) return { file, real, backup, createdFile: buf === null, afterSha: sha(back), inverse: change.inverse, label: change.label, ...(change.format ? { format: change.format } : {}) };
+    if (stillThere) return { client: change.client, file, real, backup, createdFile: buf === null, afterSha: sha(back), inverse: change.inverse, label: change.label, ...(change.format ? { format: change.format } : {}) };
     if (attempt === 4) throw new Error(`${file} keeps being rewritten by another program, so the change did not stay. Close Claude Code and run setup again.`);
     sleepSync(80);
   }
@@ -1159,12 +1161,51 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
     io.err(`\nWarning: ${missing.join(", ")} was changed by another program just after I wrote it, and the OneMemory entry is gone. Close Claude Code completely, then run setup again.`);
     return 1;
   }
-  io.out("\nDone. To check it inside Claude Code:");
-  io.out("  1. Close every Claude Code window, then open Claude Code again.");
-  io.out("  2. Type  /mcp  : you should see  onememory  connected (a green dot or the word connected).");
-  io.out("  3. Ask: \"Search my memory for 'OneMemory is connected'\". It should find the test note.");
-  io.out("  If it is missing or red: docs/live-claude-code.md has the fixes. To go back: onememory setup --undo");
+  // The last thing setup says is the only thing most people will act on, so
+  // spend it proving the ONE claim this product makes: a fact told to one
+  // assistant is known by another. It used to end by asking the user to search
+  // for the note the installer had just written about the installer -- proof
+  // that OneMemory could talk to itself, in the slot where attention peaks.
+  const proof = proofPair(written);
+  io.out("\nDone. Restart any assistant that was open, so it picks up the new entry.");
+  io.out("  Check it loaded: type  /mcp  (or your tool's equivalent) and look for  onememory  connected.");
+  if (proof) {
+    io.out(`\nNow prove it, in ${proof.sameVendor ? "two assistants" : "two different companies' assistants"} (about 30 seconds):`);
+    io.out(`  1. In ${proof.a}, say:   Remember: my staging server is on port 8443.`);
+    io.out(`  2. In ${proof.b}, ask:   What port is my staging server on?`);
+    io.out(`\n  ${proof.b} was never told. It answers 8443 — one memory, ${proof.sameVendor ? "two assistants" : "two companies"}, nothing left this machine.`);
+  } else {
+    io.out("\nNow prove it (about 30 seconds):");
+    io.out("  1. Say:   Remember: my staging server is on port 8443.");
+    io.out("  2. Start a brand-new chat and ask:   What port is my staging server on?");
+    io.out("\n  The new chat was never told. It answers 8443. Wire up a second assistant with `onememory setup` and the same memory follows you there.");
+  }
+  io.out("\nIf onememory is missing or red: docs/live-claude-code.md has the fixes. To go back: onememory setup --undo");
   return 0;
+}
+
+/**
+ * Two configured clients to demonstrate cross-assistant recall with, preferring
+ * two different vendors so the claim in the closing message is literally true.
+ * Returns undefined when only one real client was wired (then there is no
+ * cross-assistant claim to make, and setup must not pretend otherwise).
+ */
+export function proofPair(written: { client: string; label: string }[]): { a: string; b: string; sameVendor: boolean } | undefined {
+  const vendorOf = (id: string): string =>
+    id.startsWith("claude") ? "anthropic" : id === "codex" ? "openai" : id.startsWith("gemini") ? "google" : id;
+  // `project` is a file in this folder, not an assistant someone can open.
+  const seen = new Map<string, { client: string; label: string }>();
+  for (const w of written) {
+    if (w.client === "project") continue;
+    if (!seen.has(w.client)) seen.set(w.client, w);
+  }
+  const clients = [...seen.values()];
+  if (clients.length < 2) return undefined;
+  for (const a of clients) {
+    const b = clients.find((c) => vendorOf(c.client) !== vendorOf(a.client));
+    if (b) return { a: a.label, b: b.label, sameVendor: false };
+  }
+  return { a: clients[0].label, b: clients[1].label, sameVendor: true };
 }
 
 function primaryDbIfCustom(primary: string, std: string, opts: SetupOptions): string | undefined {
