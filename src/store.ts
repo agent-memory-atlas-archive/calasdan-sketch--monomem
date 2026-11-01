@@ -1318,7 +1318,23 @@ export class Store {
    * timeout instead (see bestEffortWrite): a lost read-count is acceptable,
    * a failed or stalled read is not.
    */
-  private static readonly BUSY_TIMEOUT_MS = 5000;
+  /**
+   * How long a write waits for the lock before giving up.
+   *
+   * 5000 was too low and it was a real user-facing fault, not a test problem:
+   * with eight agents writing to one store on a slow disk, a create waited out
+   * the whole budget and failed with "database is locked". It reproduced twice
+   * on Windows CI on the same assertion (runs 41236618534 and 41264340841),
+   * which is a bug by any flake policy worth having.
+   *
+   * 20s is chosen against measurement rather than taste: the failing case
+   * (8 processes x 15 creates) took ~18s of contention to drain, so the budget
+   * has to clear that with room on a cold runner. A write that genuinely
+   * cannot land in 20s means something is holding the lock, and callers that
+   * would rather fail fast than block an agent already pass
+   * `opts.busyTimeoutMs` (see the constructor and bestEffortWrite).
+   */
+  private static readonly BUSY_TIMEOUT_MS = 20_000;
   /** See the constructor: refuse instead of migrating. */
   private readonly noMigrate: boolean;
 
