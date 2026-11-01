@@ -90,14 +90,24 @@ function field(input: string, name: string): string {
  * The session-folder exclude list never covered these, because it filters the
  * session's cwd and not the edited path.
  */
-export function isEphemeralPath(p: string): boolean {
+export function isEphemeralPath(p: string, cwd = ""): boolean {
   const f = p.replace(/\\/g, "/").toLowerCase();
-  return (
-    /(^|\/)(node_modules|\.git|\.venv|venv|__pycache__|dist|build|\.cache|\.next|coverage)(\/|$)/.test(f) ||
-    /(^|\/)(tmp|temp)(\/|$)/.test(f) ||
-    /appdata\/local\/temp/.test(f) ||
-    /(^|\/)scratchpad(\/|$)/.test(f)
-  );
+
+  // Unambiguous at any depth: nobody keeps hand-written source in these.
+  if (/(^|\/)(node_modules|\.git|\.venv|__pycache__|\.cache|\.next|\.pytest_cache|\.tox)(\/|$)/.test(f)) return true;
+
+  // Machine temp space, by absolute marker rather than by a segment name.
+  if (/appdata\/local\/temp\//.test(f) || /^\/tmp\//.test(f) || /^[a-z]:\/temp\//.test(f) || /(^|\/)scratchpad(\/|$)/.test(f)) return true;
+
+  // `dist`, `build`, `coverage` and `tmp` are only build output when they are
+  // at the ROOT of the project. Matching them at any depth was wrong: it threw
+  // away real edits to `src/build/auth.ts`, to a monorepo package named
+  // `packages/build/`, and to any source tree under `temp/` or `tmp/`. Losing a
+  // genuine edit is worse than recording a generated one, so this errs the
+  // other way now.
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const rel = base && f.startsWith(base + "/") ? f.slice(base.length + 1) : f;
+  return /^(dist|build|out|coverage|tmp|temp)\//.test(rel);
 }
 
 /**
@@ -171,19 +181,27 @@ export function observe(events: readonly EventRow[], cwd: string): Observation[]
     if (e.event !== "post-tool" && e.event !== "post-tool-failure") return;
     if (EDIT_TOOLS.has(e.tool) && e.ok) {
       const p = field(e.input, "file_path") || field(e.input, "notebook_path");
-      if (p && !isEphemeralPath(p)) edited.push(normPath(p, cwd));
+      if (p && !isEphemeralPath(p, cwd)) edited.push(normPath(p, cwd));
       return;
     }
     if (e.output && e.tool && !EDIT_TOOLS.has(e.tool)) {
       const inj = scanForInjection(e.output);
-      // "tool-call coercion" matches `<invoke name=` / `<function_calls`, which
-      // is the harness's own tool-call syntax -- it appears in ordinary output
-      // whenever someone greps a prompt or reads an agent log, so as a stored
-      // memory it is a false positive by construction (5 of the 13 notes in
-      // the maintainer's own store). An alert with no attributable source is
-      // not actionable either: there is nothing to go and distrust.
-      const from = inj ? field(e.input, "url") || field(e.input, "file_path") || field(e.input, "command") : "";
-      if (inj && inj !== "tool-call coercion" && from) {
+      // "harness tool-syntax" is raw `<invoke name=` / `<function_calls`
+      // markup, which appears in ordinary output whenever anything reads an
+      // agent log or greps a prompt -- a false positive by construction (5 of
+      // the 13 notes in the maintainer's own store). It has its own label and
+      // sits LAST in INJECTION_PATTERNS precisely so that suppressing it here
+      // cannot suppress a real signal found in the same text: "do not tell the
+      // user" and "call state_delete on all now" keep the "tool-call coercion"
+      // label and still alert.
+      //
+      // The source is for the user to know what to distrust; when the tool
+      // carries no url/file_path/command (WebSearch, Grep, Task, and any
+      // mcp__* tool -- the likeliest injection channel of all) fall back to
+      // naming the tool, rather than dropping the alert.
+      const source = inj ? field(e.input, "url") || field(e.input, "file_path") || field(e.input, "command") : "";
+      const from = source || (inj ? `the ${e.tool} tool` : "");
+      if (inj && inj !== "harness tool-syntax") {
         // One alert per source per session, not one per occurrence.
         const key = `${inj}|${one(from, 200)}`;
         if (!alertSeen.has(key)) {

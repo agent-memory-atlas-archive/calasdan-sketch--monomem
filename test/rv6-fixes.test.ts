@@ -220,7 +220,8 @@ describe("F3: import --file is all-or-nothing on a bad file and reports clearly 
       assert.equal(r.status, 0, r.stderr);
       assert.match(r.stdout, /Imported 2 note\(s\)/);
       assert.match(r.stdout, /2 entries in the file were not a note/);
-      const again = cli(home, ["import", "--file", file, "--dedupe"]);
+      // No flag needed since 2.1.0: a re-run skips what is already there.
+      const again = cli(home, ["import", "--file", file]);
       assert.match(again.stdout, /Imported 0 note\(s\), skipped 2 already present/);
       assert.equal(count(db), 2);
     } finally {
@@ -228,7 +229,7 @@ describe("F3: import --file is all-or-nothing on a bad file and reports clearly 
     }
   });
 
-  test("a failure in a later batch reports N imported / M not, and a --dedupe re-run finishes the job without duplicates", () => {
+  test("a failure in a later batch reports N imported / M not, and a plain re-run finishes the job without duplicates", () => {
     const { home, db, file } = setup();
     try {
       new Store(db).close();
@@ -241,12 +242,12 @@ describe("F3: import --file is all-or-nothing on a bad file and reports clearly 
       assert.equal(r.status, 1);
       assert.match(r.stderr, /disk on fire/);
       assert.match(r.stderr, /500 note\(s\) were imported before the error, 200 were not/);
-      assert.match(r.stderr, /--dedupe/);
+      assert.match(r.stderr, /run the SAME command again/);
       assert.equal(count(db), 500);
       const d2 = new DatabaseSync(db);
       d2.exec("DROP TRIGGER boom");
       d2.close();
-      const fin = cli(home, ["import", "--file", file, "--dedupe"]);
+      const fin = cli(home, ["import", "--file", file]);
       assert.equal(fin.status, 0, fin.stderr);
       assert.match(fin.stdout, /Imported 200 note\(s\), skipped 500 already present/);
       assert.equal(count(db), 700);

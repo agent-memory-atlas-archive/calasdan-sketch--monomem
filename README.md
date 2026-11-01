@@ -523,4 +523,4 @@ Several ideas were adapted from other open projects, with thanks:
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). Built by Dan Calas / Calas Automations Inc.
+MIT — see [LICENSE](./LICENSE). Built by Calas Automations Inc.

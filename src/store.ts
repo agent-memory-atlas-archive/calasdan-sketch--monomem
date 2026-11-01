@@ -4512,7 +4512,14 @@ export class Store {
             });
             continue;
           }
-          if (opts.dedupe !== false && this.hasImportTwin(note)) {
+          // Skipping a duplicate must never skip a CHECK. Under
+          // requireAttestation the verdict is taken first, below, so a note
+          // that cannot prove its attestation is rejected whether or not the
+          // store already holds something that looks like it -- otherwise
+          // --require-attestation could be bypassed simply by resembling a row
+          // that is already there.
+          const twin = opts.dedupe !== false && this.hasImportTwin(note);
+          if (twin && !requireAttestation) {
             if (opts.report) opts.report.skipped = (opts.report.skipped ?? 0) + 1;
             continue;
           }
@@ -4527,6 +4534,11 @@ export class Store {
                 title: note.title,
                 error: `no verified attestation (${verdict.reason}); import attestation is required (--require-attestation / ONEMEMORY_IMPORT_REQUIRE_ATTESTATION)`,
               });
+              continue;
+            }
+            // Attestation satisfied; now honour the duplicate skip.
+            if (twin) {
+              if (opts.report) opts.report.skipped = (opts.report.skipped ?? 0) + 1;
               continue;
             }
             const carried = verdict.ok ? this.attestedProvenance(note, verdict.attester.server_id) : null;

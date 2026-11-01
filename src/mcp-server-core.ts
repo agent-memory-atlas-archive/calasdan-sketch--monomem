@@ -158,9 +158,14 @@ function quarantinedResult(e: QuarantinedError) {
     quarantined: {
       id: e.quarantineId,
       reasons: e.findings,
+      // Do NOT name memory_quarantine here: it is not in DEFAULT_TOOLS, so on
+      // a plain install this told the assistant to call a tool it had not been
+      // given -- the user was asked for an action nobody could take. Point at
+      // the surfaces that always exist instead.
       message:
         "This write was held for admin review by the memory linter and is not stored as a note yet. " +
-        "An admin can approve or reject it with memory_quarantine.",
+        "An admin can approve or reject it in the OneMemory dashboard, or with `onememory quarantine` " +
+        "(and through the memory_quarantine tool where ONEMEMORY_TOOLS makes it available).",
     },
   });
 }

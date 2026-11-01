@@ -253,9 +253,13 @@ describe("3: notes imported without a verified attestation are flagged, and can 
     const strict = cli(home, ["import", "--file", file, "--require-attestation"]);
     assert.equal(strict.status, 1, strict.stdout + strict.stderr);
     assert.match(strict.stderr, /attestation is required/);
+    // The note is already in this store (it was created directly above), so a
+    // plain re-import is a duplicate. --require-attestation must still reject
+    // it -- a duplicate skip must never skip a check -- and the default run
+    // then skips it as a duplicate, which is what dedupe is for.
     const lax = cli(home, ["import", "--file", file]);
     assert.equal(lax.status, 0, lax.stderr);
-    assert.match(lax.stdout, /Imported 1 note/);
+    assert.match(lax.stdout, /skipped 1 already present/);
     rmSync(home, { recursive: true, force: true });
   });
 });

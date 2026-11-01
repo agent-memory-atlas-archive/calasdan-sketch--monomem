@@ -429,7 +429,11 @@ describe("attestations: HTTP export / import and the CLI", () => {
       assert.ok(dump.notes[0].attestation);
       if (process.platform !== "win32") assert.equal(statSync(out).mode & 0o777, 0o600);
       // not trusted yet
-      const first = run("b.db", "import", "--file", out, "--json");
+      // --no-dedupe throughout: this test imports the SAME export twice to
+      // compare attestation before and after trusting the key. Dedupe is on
+      // by default since 2.1.0, so a plain second import skips the note and
+      // reports no attestations at all.
+      const first = run("b.db", "import", "--file", out, "--json", "--no-dedupe");
       assert.equal(first.status, 0, first.stderr);
       assert.equal(JSON.parse(first.stdout).attestations.verified, 0);
       const unpinned = run("b.db", "trust", "attester-add", "--public-key", aid.public_key);
@@ -437,7 +441,7 @@ describe("attestations: HTTP export / import and the CLI", () => {
       assert.match(unpinned.stderr, /server_id is required/);
       const add = run("b.db", "trust", "attester-add", "--public-key", aid.public_key, "--server-id", aid.server_id, "--label", "a");
       assert.equal(add.status, 0, add.stderr + add.stdout);
-      const second = run("b.db", "import", "--file", out, "--json");
+      const second = run("b.db", "import", "--file", out, "--json", "--no-dedupe");
       assert.equal(JSON.parse(second.stdout).attestations.verified, 1);
       assert.equal(run("b.db", "trust", "distrust", "alice", "--namespace", "*").status, 0);
       const list = JSON.parse(run("b.db", "trust", "list", "--json").stdout);

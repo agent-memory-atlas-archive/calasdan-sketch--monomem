@@ -1078,8 +1078,15 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
         const s = new Store(d);
         try {
           if (!opts.noTestNote) {
-            const have = s.list({ limit: 1, withTags: ["setup-check"] });
-            if (have.total === 0) {
+            // An install from before 2.1.0 still holds the note setup used to
+            // leave behind. Clear it, or every existing user keeps the
+            // installer's note about the installer for good and never gets the
+            // cleaned-up behaviour -- the earlier fix only helped new stores.
+            const old = s.list({ limit: 50, withTags: ["setup-check"] });
+            let removed = 0;
+            for (const n of old.notes) if (s.delete(n.id)) removed++;
+            if (removed) io.out(`Database ${d}: removed ${removed} leftover test note${removed === 1 ? "" : "s"} from an earlier install — your store is yours now.`);
+            {
               const note = s.create({
                 title: "OneMemory is connected",
                 body: "This note was written by `onememory setup` to check that writing and reading work. You can delete it any time.",
@@ -1095,7 +1102,7 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
               // one more operation works than the old check did.
               if (!s.delete(note.id)) throw new Error("the test note was written and read back, but could not be deleted");
               io.out(`Database ${d}: test note written, read back and cleaned up.`);
-            } else io.out(`Database ${d}: opens fine (a test note is already there).`);
+            }
           } else io.out(`Database ${d}: opens fine.`);
         } finally {
           s.close();
@@ -1176,10 +1183,18 @@ export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Pr
   io.out("\nDone. Restart any assistant that was open, so it picks up the new entry.");
   io.out("  Check it loaded: type  /mcp  (or your tool's equivalent) and look for  onememory  connected.");
   if (proof) {
-    io.out(`\nNow prove it, in ${proof.sameVendor ? "two assistants" : "two different companies' assistants"} (about 30 seconds):`);
+    io.out(`\nOne memory, ${proof.sameVendor ? "two assistants" : "two companies' assistants"}. Thirty seconds to see it:`);
     io.out(`  1. In ${proof.a}, say:   Remember: my staging server is on port 8443.`);
     io.out(`  2. In ${proof.b}, ask:   What port is my staging server on?`);
-    io.out(`\n  ${proof.b} was never told. It answers 8443 — one memory, ${proof.sameVendor ? "two assistants" : "two companies"}, nothing left this machine.`);
+    // Never assert what the other assistant WILL say: it searches memory only
+    // if it decides to, and some hosts have no session-start hook at all. An
+    // installer that over-promises in its last line is worse than one that
+    // under-promises, so give the recovery instead of a guarantee.
+    io.out(`\n  ${proof.b} was never told, and nothing left this machine. If it says it does not know,`);
+    io.out("  ask it to search your memory — some assistants only look when you ask.");
+    io.out("\n  Then ask either one:   Who wrote that note, and when?");
+    io.out("  Every memory names the assistant that wrote it. That is the part other memory");
+    io.out("  servers skip: when two agents disagree, you can see which one to believe.");
   } else {
     io.out("\nNow prove it (about 30 seconds):");
     io.out("  1. Say:   Remember: my staging server is on port 8443.");
