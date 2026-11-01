@@ -247,11 +247,13 @@ describe("setup: looking before changing", () => {
     assert.equal(readFileSync(ccFile(s.home), "utf8"), REAL_CLAUDE_JSON);
   });
   test("a Node that is too old gets a clear message and nothing is touched", async () => {
-    const s = sandbox({ nodeVersion: "22.11.0" });
+    // 22.4.0 is the last Node with no `node:sqlite` at all. (This used to say
+    // 22.11.0, which 2.1.0 supports -- the floor is 22.5.0, not 24.)
+    const s = sandbox({ nodeVersion: "22.4.0" });
     write(ccFile(s.home), REAL_CLAUDE_JSON);
     const io = makeIO();
     assert.equal(await runSetup(s.e, io, opts({ yes: true })), 1);
-    assert.match(io.all(), /needs Node\.js 24 or newer, and this computer has Node 22\.11\.0/);
+    assert.match(io.all(), /needs Node\.js 22\.5\.0 or newer, and this computer has Node 22\.4\.0/);
     assert.match(io.all(), /node -v/);
     assert.equal(readFileSync(ccFile(s.home), "utf8"), REAL_CLAUDE_JSON);
   });
@@ -403,7 +405,9 @@ describe("setup: making the change", () => {
     const io = makeIO();
     assert.equal(await runSetup(s.e, io, { ...opts({ yes: true, db: s.db, noTestNote: true }), noDoctor: false }), 0);
     assert.match(io.all(), /onememory doctor:/);
-    assert.match(io.all(), /Node 24/);
+    // Whatever Node is running this suite -- 22 and 24 are both supported, so
+    // do not hard-code one of them here.
+    assert.match(io.all(), new RegExp(`Node ${process.versions.node.replace(/\./g, "\\.")}`));
     assert.match(io.all(), /database OK at/);
   });
 });

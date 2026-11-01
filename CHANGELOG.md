@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Node 22 is supported (this was the biggest install barrier)
+
+OneMemory asked for Node 24 and refused to start on anything older. It never needed to: notes are stored through
+Node's built-in `node:sqlite`, which landed in **Node 22.5.0** and imports with no flag from then on. Everyone on the
+Node 22 LTS line — most people — hit a hard stop on the first command for no technical reason.
+
+- **`engines` is now `>=22.5.0`.** The version gate reads the minor number too, so Node 22.4 and older are still
+  refused (they have no `node:sqlite` at all, and letting them through would crash on the first database call).
+- The "too old" message now names 22.5.0 and points at Node 22.5+ or 24 LTS.
+- **CI runs the full suite on Node 22 and Node 24, on Linux, macOS and Windows.** The supported floor is tested
+  rather than assumed; the whole suite passes on both.
+
+### Fixed
+
+- **A `wait=` request could never answer instead of timing out.** Every timer behind "wait for a change" was
+  unref'd, so the event loop could drain while the promise was still pending: an awaiting caller got no result and
+  the process simply exited — a silent failure rather than a timeout. A server survived it because its listener held
+  the loop open; nothing else did. The bounded timeout is now held, so a wait always settles, and shutdown still ends
+  waiters at once through `abortAllWaiters()`.
+
 ## [2.0.1] - 2026-10-31
 
 Release-only: 2.0.0 never reached npm (trusted publishing was refused). Same code as 2.0.0; releases are now staged on npm and approved by the owner.

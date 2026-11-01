@@ -274,10 +274,25 @@ export interface SetupPlan {
   conflicts: string[];
 }
 
-const MIN_NODE = 24;
+// The floor is set by `node:sqlite`, which is how notes are stored.
+// It landed in Node 22.5.0 and is importable with no flag from then on, so
+// 22.5.0 is the real minimum. (It asked for 24 until 2.1.0, which refused to
+// run on the whole current Node 22 LTS line for no technical reason -- by far
+// the biggest install barrier this package had.) The minor number matters:
+// Node 22.4 has no `node:sqlite` at all, so a major-only test would let it
+// through and the first database call would crash.
+const MIN_NODE_MAJOR = 22;
+const MIN_NODE_MINOR = 5;
+export const MIN_NODE_TEXT = `${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}.0`;
 
 export function nodeIsOk(v: string): boolean {
-  return Number(v.split(".")[0]) >= MIN_NODE;
+  const m = /^v?(\d+)\.(\d+)\./.exec(v.trim());
+  if (!m) return false; // unparseable: refuse rather than assume it is new enough
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  if (major > MIN_NODE_MAJOR) return true;
+  if (major < MIN_NODE_MAJOR) return false;
+  return minor >= MIN_NODE_MINOR;
 }
 
 export function readTextFile(file: string): string | null {
@@ -883,9 +898,9 @@ function describeSchema(v: number | null, current: number): string {
 export async function runSetup(e: SetupEnv, io: SetupIO, opts: SetupOptions): Promise<number> {
   if (!nodeIsOk(e.nodeVersion)) {
     io.err(
-      `OneMemory needs Node.js ${MIN_NODE} or newer, and this computer has Node ${e.nodeVersion}.\n` +
-        `  Fix: install Node ${MIN_NODE} (https://nodejs.org), open a NEW terminal, check with:  node -v\n` +
-        "  Then run this again. Nothing was changed. (No Node 24? Docker works too: see INSTALL.md.)"
+      `OneMemory needs Node.js ${MIN_NODE_TEXT} or newer, and this computer has Node ${e.nodeVersion}.\n` +
+        `  Fix: install Node 22.5+ or 24 LTS (https://nodejs.org), open a NEW terminal, check with:  node -v\n` +
+        "  Then run this again. Nothing was changed. (Can't upgrade Node? Docker works too: see INSTALL.md.)"
     );
     return 1;
   }

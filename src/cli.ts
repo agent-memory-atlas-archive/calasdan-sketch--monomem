@@ -193,11 +193,11 @@ async function doctor(): Promise<void> {
   const warn = (m: string) => console.log("  [warn] " + m);
   console.log("onememory doctor\n");
 
-  const parts = process.versions.node.split(".").map(Number);
-  if (parts[0] >= 24) {
+  const { nodeIsOk, MIN_NODE_TEXT } = await import("./setup.js");
+  if (nodeIsOk(process.versions.node)) {
     ok("Node " + process.versions.node);
   } else {
-    warn("Node " + process.versions.node + " — need >= 24 (for the built-in SQLite)");
+    warn("Node " + process.versions.node + ` — need >= ${MIN_NODE_TEXT} (for the built-in SQLite)`);
   }
 
   const why =
@@ -2116,13 +2116,17 @@ function askYesNo(prompt: string): Promise<boolean> {
 async function main(): Promise<void> {
   const cmd = process.argv[2] || "start";
   // Old Node: say so in plain words BEFORE anything loads node:sqlite (which would crash with a stack trace).
-  if (Number(process.versions.node.split(".")[0]) < 24 && !["help", "--help", "-h"].includes(cmd)) {
-    console.error(
-      `OneMemory needs Node.js 24 or newer, and this computer has Node ${process.versions.node}.\n` +
-        "  Fix: install Node 24 (https://nodejs.org), open a NEW terminal, check with:  node -v\n" +
-        "  Nothing was changed. (No Node 24? Docker works too: see INSTALL.md.)"
-    );
-    process.exit(1);
+  // setup.js is safe to load here -- it never imports node:sqlite.
+  if (!["help", "--help", "-h"].includes(cmd)) {
+    const { nodeIsOk, MIN_NODE_TEXT } = await import("./setup.js");
+    if (!nodeIsOk(process.versions.node)) {
+      console.error(
+        `OneMemory needs Node.js ${MIN_NODE_TEXT} or newer, and this computer has Node ${process.versions.node}.\n` +
+          "  Fix: install Node 22.5+ or 24 LTS (https://nodejs.org), open a NEW terminal, check with:  node -v\n" +
+          "  Nothing was changed. (Can't upgrade Node? Docker works too: see INSTALL.md.)"
+      );
+      process.exit(1);
+    }
   }
   if (cmd === "--version" || cmd === "-v" || cmd === "version") {
     const { PACKAGE_VERSION } = await import("./config.js");
