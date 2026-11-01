@@ -4,7 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.1.0] - 2026-11-01
+
+**Installs on the Node you already have, and costs about 8,900 fewer tokens per turn.**
+
+Note on versioning: cutting the default tool set from 32 to 9 removes behaviour, which is strictly a
+major change. It ships as a minor because `ONEMEMORY_TOOLS=all` restores every tool, and 2.0.x never
+reached npm. 2.0.1 was published to the staging registry only and is folded into this release, so the
+upgrade path is 2.0.0 -> 2.1.0.
 
 ### Node 22 is supported (this was the biggest install barrier)
 
