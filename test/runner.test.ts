@@ -175,7 +175,11 @@ describe("execution", () => {
   });
 
   test("a failing command reports a non-zero exit code", async () => {
-    const out = await runCommand("sh", ["-c", "exit 3"], { timeoutMs: 10_000 });
+    // 30s, not 10s: on a loaded Windows CI runner the cold `sh` spawn alone ate
+    // the old budget, so the child was killed by its own timeout and reported
+    // the timeout's code instead of 3 -- the test failed for reasons that had
+    // nothing to do with exit codes.
+    const out = await runCommand("sh", ["-c", "exit 3"], { timeoutMs: 30_000 });
     assert.equal(out.exit_code, 3);
   });
 
