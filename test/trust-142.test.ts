@@ -53,8 +53,14 @@ function cli(home: string, args: string[], env: Record<string, string> = {}) {
 
 describe("the harness is hermetic", () => {
   test("no ONEMEMORY_* variable from the developer's shell reaches the suite (npm test preloads dist/test/setup-env.js)", () => {
-    const left = Object.keys(process.env).filter((k) => k.startsWith("ONEMEMORY_") && k !== "ONEMEMORY_HOME");
+    // ONEMEMORY_HOME and ONEMEMORY_TOOLS are set BY setup-env.js on purpose
+    // (a throwaway data directory, and the full tool surface so the suite can
+    // exercise the operator tools a plain install no longer registers). Any
+    // other ONEMEMORY_* variable means the developer's shell leaked in.
+    const deliberate = new Set(["ONEMEMORY_HOME", "ONEMEMORY_TOOLS"]);
+    const left = Object.keys(process.env).filter((k) => k.startsWith("ONEMEMORY_") && !deliberate.has(k));
     assert.deepEqual(left, []);
+    assert.equal(process.env.ONEMEMORY_TOOLS, "all", "the suite runs against the full tool surface");
     assert.ok(process.env.ONEMEMORY_HOME?.includes("onememory-test-home-"), "the data directory is a throwaway one");
   });
 });

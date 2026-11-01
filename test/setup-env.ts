@@ -9,6 +9,11 @@ import { join } from "node:path";
 for (const k of Object.keys(process.env)) if (k.startsWith("ONEMEMORY_") || k.startsWith("CLAUDE_BRIDGE_")) delete process.env[k];
 const home = mkdtempSync(join(tmpdir(), "onememory-test-home-"));
 process.env.ONEMEMORY_HOME = home;
+// The suite exercises every tool, including the operator ones that a plain
+// install no longer registers by default (see DEFAULT_TOOLS in
+// mcp-server-core.ts). test/tool-surface.test.ts owns the assertions about
+// what the DEFAULT surface is, and sets this variable itself.
+process.env.ONEMEMORY_TOOLS = "all";
 process.on("exit", () => {
   try {
     rmSync(home, { recursive: true, force: true });

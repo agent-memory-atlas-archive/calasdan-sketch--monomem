@@ -41,6 +41,12 @@ export interface ServerNamespaceOpts {
   namespace?: string;
   /** One-directional read grants, as in NamespaceConfig.reads_from. */
   readsFrom?: Record<string, string[]>;
+  /**
+   * Which MCP tools to register, overriding ONEMEMORY_TOOLS. `"all"` registers
+   * every tool. Used by the benchmark harness, which measures the whole
+   * surface and must not depend on the ambient environment.
+   */
+  tools?: "all" | readonly string[];
 }
 
 const SPACES_ENV = "ONEMEMORY_SPACES";

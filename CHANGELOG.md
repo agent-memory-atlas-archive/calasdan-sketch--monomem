@@ -18,8 +18,47 @@ Node 22 LTS line — most people — hit a hard stop on the first command for no
 - **CI runs the full suite on Node 22 and Node 24, on Linux, macOS and Windows.** The supported floor is tested
   rather than assumed; the whole suite passes on both.
 
+### Nine tools by default instead of thirty-two
+
+Every registered tool's name, description and schema is sent to the model on **every turn**, so an unused
+tool is a cost paid continuously. Measured: 53,394 characters of tool schema per turn before, 17,956 after
+— about **8,900 fewer tokens every turn, a 66% reduction**. It also stopped handing the model a 32-item
+menu to choose wrongly from, and several hosts cap how many tools they accept.
+
+The default nine are what an assistant needs for memory to work: `state_write`, `state_read`,
+`state_search`, `state_relevant`, `state_list`, `state_delete`, `catch_up`, and the two-step
+`memory_supersede_preview`/`confirm` so an agent can correct a memory without silently overwriting one.
+
+Everything else is operator tooling and is still there: `ONEMEMORY_TOOLS=all` registers all 32, and a
+comma-separated list adds named tools to the core set (never replacing it, so a typo cannot leave a server
+that can neither read nor write).
+
+This also means a plain memory install no longer advertises `task_put`/`task_approve`/`runner_status` —
+command queueing and runner status — when the command runner is not even shipped in the package.
+
+### Memory quality
+
+- **Capture now asks whether something is worth remembering**, not just whether something happened. The
+  maintainer's own store held 13 notes and no useful facts; every one was the code working as written.
+  Edits under temp, cache, dependency and build folders are no longer "facts". Injection alerts skip the
+  `tool-call coercion` pattern (it matches the agent harness's *own* tool-call syntax, which appears in any
+  output that reads an agent log), need an attributable source, and fire once per source rather than once
+  per occurrence. A session needs real work or a prompt long enough to be an instruction, so a bare "hi"
+  no longer becomes a memory. Relayed agent messages, quoted lines and fenced blocks are stripped before
+  the decision pattern runs, so a subagent's words can never be filed as the user's decision.
+- **`setup`'s test note is deleted after it is read back**, so a new store starts empty instead of being
+  seeded with the installer's own note — which used to be the first thing anyone searched for.
+
 ### Fixed
 
+- **Importing twice no longer doubles every memory.** Duplicate protection on import was opt-in, so
+  restoring a backup or re-syncing silently duplicated the whole store, with no undo. It is now on by
+  default; pass `dedupe: false` (or `?dedupe=0`) when duplicates are genuinely wanted.
+- **Search had been discarding negation.** `not`, `never`, `no`, `nor`, `none`, `cannot`, `only`, `always`
+  and the negated halves of contractions were stop-words, so *"never use the legacy client"* and *"always
+  use the legacy client"* produced an identical keyword set and ranked identically. A question about which
+  client to use could be answered with the opposite of what was stored. No reindex is needed — the index
+  covers the raw text; only query-side extraction was throwing these away.
 - **A `wait=` request could never answer instead of timing out.** Every timer behind "wait for a change" was
   unref'd, so the event loop could drain while the promise was still pending: an awaiting caller got no result and
   the process simply exited — a silent failure rather than a timeout. A server survived it because its listener held

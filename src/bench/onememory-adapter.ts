@@ -181,8 +181,13 @@ export class OneMemoryAdapter implements MemoryAdapter {
    * one it resolves from its working directory). Tokens pinned to a tenant ignore that namespace; tokens with no pin
    * fall back to it. Without grants the server has no namespace at all (the open, single-tenant behaviour).
    */
-  private serverOpts(): { namespace?: string; readsFrom?: Record<string, string[]> } {
-    return Object.keys(this.grants).length ? { namespace: "default", readsFrom: this.grants } : {};
+  // `tools: "all"` on purpose: the benchmark measures the whole surface,
+  // including the operator tools a plain install no longer registers, and it
+  // must give the same numbers whatever ONEMEMORY_TOOLS happens to be set to.
+  private serverOpts(): { namespace?: string; readsFrom?: Record<string, string[]>; tools: "all" } {
+    return Object.keys(this.grants).length
+      ? { namespace: "default", readsFrom: this.grants, tools: "all" }
+      : { tools: "all" };
   }
 
   private actor(name: string): ActorHandle {
@@ -440,7 +445,7 @@ export class OneMemoryAdapter implements MemoryAdapter {
     const mcp = createMcpServer(
       s.store,
       a.scope,
-      a.namespace ? { namespace: a.namespace, readsFrom: this.grants } : this.serverOpts(),
+      a.namespace ? { namespace: a.namespace, readsFrom: this.grants, tools: "all" as const } : this.serverOpts(),
       { label: a.writer, authed: true }
     );
     const [c, srv] = InMemoryTransport.createLinkedPair();
