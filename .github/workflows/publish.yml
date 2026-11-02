@@ -7,9 +7,9 @@ name: Publish to npm
 # THINGS TO VERIFY ON npmjs.com (cannot be checked from this repo):
 #   Package monomem -> Settings -> Trusted Publisher -> GitHub Actions
 #     Owner / user:  calasdan-sketch
-#     Repository:    Monomem           (capital M - that is the real repo name;
-#                                       npm's fields are case-sensitive, and
-#                                       package.json's repository.url must
+#     Repository:    monomem           (all lower case - that is the real repo
+#                                       name; npm's fields are case-sensitive,
+#                                       and package.json's repository.url must
 #                                       match the GitHub repo exactly)
 #     Workflow file: publish.yml      (file name only, no path, case-sensitive)
 #     Environment:   (leave BLANK - this job declares no `environment:`)
