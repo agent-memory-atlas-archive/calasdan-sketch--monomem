@@ -19,11 +19,11 @@ function sandbox(): { e: SetupEnv; settings: string; db: string } {
   roots.push(root);
   const home = join(root, "home");
   mkdirSync(join(home, ".claude"), { recursive: true });
-  writeFileSync(join(home, ".claude.json"), '{"mcpServers":{"onememory":{"type":"stdio","command":"onememory","args":["mcp"]}}}');
+  writeFileSync(join(home, ".claude.json"), '{"mcpServers":{"monomem":{"type":"stdio","command":"monomem","args":["mcp"]}}}');
   return {
     settings: join(home, ".claude", "settings.json"),
     db: join(root, "data", "state.db"),
-    e: { home, platform: "linux", env: { HOME: home, ONEMEMORY_HOME: join(root, "om") }, cwd: root, nodeVersion: "24.4.1", execPath: process.execPath, cliPath: CLI, version: "2.0.0", now: () => new Date("2026-10-30T12:00:00Z") },
+    e: { home, platform: "linux", env: { HOME: home, MONOMEM_HOME: join(root, "om") }, cwd: root, nodeVersion: "24.4.1", execPath: process.execPath, cliPath: CLI, version: "2.0.0", now: () => new Date("2026-10-30T12:00:00Z") },
   };
 }
 function io(answers: string[] = [], interactive = false): SetupIO & { all: () => string; asked: string[] } {
@@ -36,6 +36,33 @@ const USER_HOOKS = JSON.stringify({ theme: "dark", hooks: { PostToolUse: [{ matc
 const read = (p: string): any => JSON.parse(readFileSync(p, "utf8"));
 
 describe("setup: automatic memory hooks", () => {
+  test("an existing hook is recognised whatever the install path's name and casing", () => {
+    // The hook line lives in the USER's settings file and holds whatever path
+    // was installed then: an older name from before a rename, and any casing
+    // the user's filesystem happens to use. Failing to recognise it means
+    // setup bolts a SECOND copy in beside the one they already have.
+    //
+    // Both halves of this were real. Matching only the current name broke every
+    // upgrade from OneMemory; matching case-sensitively then broke CI, whose
+    // checkout is at D:\a\Monomem\Monomem while the author's is lowercase.
+    for (const dir of ["monomem", "Monomem", "onememory", "OneMemory", "claude-bridge"]) {
+      const s = sandbox();
+      const cli = `C:/work/${dir}/dist/src/cli.js`;
+      writeFileSync(
+        s.settings,
+        JSON.stringify({
+          hooks: {
+            SessionStart: [{ hooks: [{ type: "command", command: `node "${cli}" hook session-start` }] }],
+            UserPromptSubmit: [{ hooks: [{ type: "command", command: `node "${cli}" hook user-prompt` }] }],
+          },
+        }),
+      );
+      const r = planHooks(s.e, opts(), undefined, { recall: true, capture: false });
+      assert.equal(r.change, null, `a hook at .../${dir}/... is ours and must not be duplicated`);
+      assert.equal(r.already, true, `.../${dir}/... should report already-installed`);
+    }
+  });
+
   test("planHooks appends one entry per event next to the user's hooks; async for the background ones", () => {
     const s = sandbox();
     writeFileSync(s.settings, USER_HOOKS);
@@ -96,7 +123,7 @@ describe("setup: automatic memory hooks", () => {
     assert.equal(back.theme, "light");
     assert.deepEqual(back.hooks.PostToolUse, JSON.parse(USER_HOOKS).hooks.PostToolUse);
     assert.deepEqual(back.hooks.Stop, JSON.parse(USER_HOOKS).hooks.Stop);
-    assert.ok(!JSON.stringify(back).includes(" hook "), "no onememory hook is left");
+    assert.ok(!JSON.stringify(back).includes(" hook "), "no monomem hook is left");
   });
 
   test("interactive: the consent question is asked and a no keeps capture out", async () => {
